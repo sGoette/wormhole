@@ -1,0 +1,7 @@
+config/nas.env
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+results/logs/*
+!results/logs/.gitkeep
