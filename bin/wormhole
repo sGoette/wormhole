@@ -1,11 +1,11 @@
 #!/bin/sh
 # Launcher that works identically on the Mac and on the NAS (POSIX sh, no install step).
-# Config: $WORMHOLE_ENV if set, else config/active.env (deployed), else config/local.env.
+# Config: $WORMHOLE_ENV if set, else /etc/wormhole/wormhole.env (server), else config/local.env.
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 if [ -z "$WORMHOLE_ENV" ]; then
-    if [ -f "$ROOT/config/active.env" ]; then
-        WORMHOLE_ENV="$ROOT/config/active.env"
+    if [ -f /etc/wormhole/wormhole.env ]; then
+        WORMHOLE_ENV=/etc/wormhole/wormhole.env
     else
         WORMHOLE_ENV="$ROOT/config/local.env"
     fi

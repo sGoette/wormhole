@@ -6,7 +6,9 @@ Listens on all interfaces so an iPhone on the LAN can use it.
 
 import json
 import logging
+import os
 import signal
+import sys
 import threading
 import time
 from dataclasses import asdict
@@ -17,6 +19,7 @@ from urllib.parse import urlsplit
 
 from . import config, feed
 from .owntone import OwnTone, OwnToneError, log_problems_since
+from .update import UpdateError, Updater
 
 log = logging.getLogger(__name__)
 
@@ -128,6 +131,35 @@ class App:
         self.owntone_log = config.path(cfg, "OWNTONE_LOG") if cfg.get("OWNTONE_LOG") else None
         self.renderer = None  # renderer.RendererService, when RENDERER_NAME is set
         self.pipe_name = config.path(cfg, "PCM_PIPE").name if cfg.get("PCM_PIPE") else "turntable"
+        self.updater = Updater(remote=cfg.get("UPDATE_REMOTE", "origin"),
+                               branch=cfg.get("UPDATE_BRANCH", "main"))
+        self.last_check: Optional[dict] = None
+        self.request_restart: Callable[[], None] = lambda: None  # set by serve()
+
+    # -- software updates (see update.py)
+    def update_status(self) -> dict:
+        try:
+            status = self.updater.current()
+        except UpdateError as exc:
+            return {"available": False, "reason": str(exc)}
+        status["last_check"] = self.last_check
+        return status
+
+    def check_update(self) -> dict:
+        try:
+            self.last_check = self.updater.check()
+        except UpdateError as exc:
+            raise ValueError(f"Update check failed: {exc}") from None
+        return self.last_check
+
+    def apply_update(self, rollback: bool = False) -> dict:
+        try:
+            result = self.updater.rollback() if rollback else self.updater.apply()
+        except UpdateError as exc:
+            raise ValueError(f"{'Rollback' if rollback else 'Update'} failed: {exc}") from None
+        self.last_check = None
+        self.request_restart()  # re-exec with the new code once the response is sent
+        return result
 
     def explain(self, exc: OwnToneError, since: float) -> str:
         """Add the reason from OwnTone's log (and a hint if we know the cause)."""
@@ -223,6 +255,8 @@ def make_handler(app: App) -> type:
                 self._send(200, "text/html; charset=utf-8", PAGE.encode())
             elif path == "/api/state":
                 self._json(app.state())
+            elif path == "/api/update":
+                self._json(app.update_status())
             else:
                 self._send(404, "text/plain", b"not found\n")
 
@@ -247,6 +281,11 @@ def make_handler(app: App) -> type:
                     app.feed.stop()
                 elif method == "POST" and path == "/api/stop":
                     app.stop_all()
+                elif method == "POST" and path == "/api/update/check":
+                    return self._json(dict(app.check_update(), ok=True))
+                elif method == "POST" and path in ("/api/update/apply", "/api/update/rollback"):
+                    result = app.apply_update(rollback=path.endswith("rollback"))
+                    return self._json(dict(result, ok=True))
                 else:
                     return self._send(404, "text/plain", b"not found\n")
             except PinRequired as exc:
@@ -300,6 +339,15 @@ def serve(cfg: Dict[str, str], port: int) -> int:
         except OSError as exc:
             raise SystemExit(f"cannot start UPnP renderer: {exc}") from None
         app.renderer.start()
+    restart = threading.Event()
+
+    def request_restart() -> None:
+        restart.set()
+        # shutdown() blocks until serve_forever returns, so not from a request thread directly;
+        # the short delay lets the HTTP response reach the browser first.
+        threading.Timer(0.5, server.shutdown).start()
+
+    app.request_restart = request_restart
     log.info("web UI on http://localhost:%d (OwnTone: %s)", port, cfg.get("OWNTONE_URL"))
     try:
         server.serve_forever()
@@ -310,7 +358,19 @@ def serve(cfg: Dict[str, str], port: int) -> int:
             app.renderer.stop()  # SSDP byebye, so control points drop us right away
         app.feed.stop()
         server.server_close()
+    if restart.is_set():
+        _reexec()
     return 0
+
+
+def _reexec() -> None:
+    """Replace this process with a fresh `wormhole web` that loads the updated code.
+    Same PID, so systemd (server) and the terminal (Mac) keep tracking it. Sockets are not
+    inherited (Python makes them non-inheritable), so the ports are free again."""
+    argv = [sys.executable, "-m", "wormhole"] + sys.argv[1:]
+    log.info("restarting: %s", " ".join(argv))
+    logging.shutdown()
+    os.execv(sys.executable, argv)
 
 
 PAGE = """<!doctype html>
@@ -362,6 +422,9 @@ button { cursor:pointer; font-weight:600; } button:disabled { opacity:.5; cursor
 .status dt { color:var(--muted); } .status dd { margin:0; overflow-wrap:anywhere; }
 .good { color:var(--ok); font-weight:600; } .err { color:var(--err); }
 #msg { min-height:1.4em; margin:0 0 12px; font-size:14px; white-space:pre-line; }
+#u-commits { margin:8px 0 12px; padding-left:18px; font-size:13px; color:var(--muted); }
+#u-commits:empty { display:none; }
+#u-note { font-size:13px; white-space:pre-line; }
 </style></head><body><main>
 <h1>Wormhole</h1>
 <p class="sub">Turntable &rarr; UPnP renderer &rarr; pipe &rarr; OwnTone &rarr; HomePods</p>
@@ -389,6 +452,21 @@ button { cursor:pointer; font-weight:600; } button:disabled { opacity:.5; cursor
 </div>
 
 <button id="stopall" style="width:100%">Stop everything</button>
+
+<div class="card" style="margin-top:14px">
+  <h2>Software</h2>
+  <dl class="status">
+    <dt>Version</dt><dd id="u-version">-</dd>
+    <dt>Updates</dt><dd id="u-state">not checked yet</dd>
+  </dl>
+  <ul id="u-commits"></ul>
+  <p id="u-note" class="err" hidden></p>
+  <div class="row">
+    <button id="u-check">Check for updates</button>
+    <button id="u-apply" class="primary" hidden>Update now</button>
+    <button id="u-rollback" hidden>Roll back</button>
+  </div>
+</div>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -539,6 +617,96 @@ async function poll() {
 $("start").onclick = () => act("POST", "/api/feed/start", {source: $("source").value});
 $("stopfeed").onclick = () => act("POST", "/api/feed/stop");
 $("stopall").onclick = () => act("POST", "/api/stop");
+// -- software updates
+let running = null;  // commit currently running
+let installCmd = "server/install.sh";
+
+function day(iso) { return iso ? iso.slice(0, 10) : ""; }
+
+function renderVersion(u) {
+  if (!u.available) {
+    $("u-version").textContent = u.reason || "unknown";
+    $("u-check").hidden = true;
+    return;
+  }
+  running = u.commit;
+  installCmd = `${u.repo}/server/install.sh`;
+  $("u-version").textContent = `${u.short} (${day(u.date)}): ${u.subject}`;
+  $("u-rollback").hidden = !u.previous;
+  if (u.previous) $("u-rollback").textContent = `Roll back to ${u.previous.short}`;
+}
+
+function renderCheck(c) {
+  const list = $("u-commits");
+  list.innerHTML = "";
+  for (const x of c.commits || []) {
+    const li = document.createElement("li");
+    li.textContent = `${x.short} ${day(x.date)} ${x.subject}`;
+    list.appendChild(li);
+  }
+  const st = $("u-state");
+  st.className = "";
+  if (c.blocked_reason) {
+    st.textContent = `Can't update: ${c.blocked_reason}`; st.className = "err";
+  } else if (c.behind) {
+    st.textContent = `${c.behind} new commit(s) on GitHub`; st.className = "good";
+  } else st.textContent = "Up to date";
+  $("u-apply").hidden = !c.can_update;
+  $("u-apply").textContent = `Update now (${c.behind})`;
+  const note = $("u-note");
+  note.hidden = !(c.needs_install && c.needs_install.length);
+  note.textContent = note.hidden ? "" : "This update changes server files (" +
+    c.needs_install.join(", ") + "). After updating, run in the VM console as root:\\n" +
+    installCmd;
+}
+
+async function loadVersion() {
+  try { renderVersion(await (await fetch("/api/update")).json()); } catch (e) { /* offline */ }
+}
+
+$("u-check").onclick = async () => {
+  $("u-check").disabled = true;
+  $("u-state").textContent = "Checking GitHub…";
+  try { renderCheck(await call("POST", "/api/update/check")); }
+  catch (e) { $("u-state").textContent = e.message; $("u-state").className = "err"; }
+  $("u-check").disabled = false;
+};
+
+async function runUpdate(kind) {
+  for (const b of ["u-check", "u-apply", "u-rollback"]) $(b).disabled = true;
+  const before = running;
+  $("u-state").textContent = kind === "apply" ? "Updating…" : "Rolling back…";
+  try {
+    const r = await call("POST", `/api/update/${kind}`);
+    let text = `${r.from} → ${r.to}. Restarting…`;
+    if (r.needs_install && r.needs_install.length)
+      text += `\\nServer files changed: run ${installCmd} as root in the VM.`;
+    $("u-state").textContent = text;
+    try { sessionStorage.setItem("updateNote", text.replace(" Restarting…", "")); } catch (e) {}
+    // Wait until the new process answers with the new commit, then load its page.
+    for (let i = 0; i < 60; i++) {
+      await new Promise(res => setTimeout(res, 1000));
+      try {
+        const u = await (await fetch("/api/update")).json();
+        if (u.commit && u.commit !== before) { location.reload(); return; }
+      } catch (e) { /* restarting */ }
+    }
+    $("u-state").textContent = "wormhole did not come back within 60 s; check the VM.";
+  } catch (e) {
+    $("u-state").textContent = e.message; $("u-state").className = "err";
+  }
+  for (const b of ["u-check", "u-apply", "u-rollback"]) $(b).disabled = false;
+}
+
+$("u-apply").onclick = () => runUpdate("apply");
+$("u-rollback").onclick = () => runUpdate("rollback");
+try {
+  const note = sessionStorage.getItem("updateNote");
+  if (note) { $("u-state").textContent = note; $("u-state").className = "good"; }
+  sessionStorage.removeItem("updateNote");
+} catch (e) {}
+
+loadVersion();
 poll(); setInterval(poll, 1500);
 </script></body></html>
 """

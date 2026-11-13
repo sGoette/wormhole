@@ -1,0 +1,35 @@
+# OwnTone config for wormhole. Rendered by `wormhole owntone-config` (src/wormhole/owntoneconf.py)
+# for the Mac (tools/owntone-mac/run.sh) and the server (server/install.sh).
+# Edit this template, not a generated file. Every key was checked against OwnTone 29.3
+# src/conffile.c; OwnTone's defaults are left out.
+
+general {
+	uid = "@USER@"
+	db_path = "@DB_PATH@"
+	cache_dir = "@CACHE_DIR@"
+	logfile = "@LOGFILE@"
+	# fatal, log, warning, info, debug, spam
+	loglevel = @LOGLEVEL@
+
+	# HomePod software 27 answers 403 to OwnTone 29.3's default User-Agent ("owntone/29.3").
+	# Verified 2026-11-13 on a HomePod: 403 with the default, 200 with this value.
+	# OwnTone issue #2042; the default changed in OwnTone master after 29.3.
+	user_agent = "AirPlay/999.0.0"
+}
+
+library {
+	name = "@NAME@"
+	port = @PORT@
+	# The first directory holds the PCM pipe. On the Mac, tools/media is added for local tests.
+	directories = { @DIRECTORIES@ }
+	# OwnTone's defaults plus .md (tools/media/README.md is not audio).
+	filetypes_ignore = { ".db", ".ini", ".db-journal", ".pdf", ".metadata", ".md" }
+
+	# Start playback when data arrives in a named pipe in the library. wormhole also starts the
+	# pipe explicitly (autostart does not fire again after a stop), so this is only a fallback.
+	pipe_autostart = true
+	# Must match what `wormhole feed` writes (PIPE_SAMPLE_RATE / PIPE_BITS in the env file).
+	# OwnTone accepts 44100, 48000, 88200, 96000 and 16 or 32 bits; always 2 channels.
+	pipe_sample_rate = @PIPE_SAMPLE_RATE@
+	pipe_bits_per_sample = @PIPE_BITS@
+}

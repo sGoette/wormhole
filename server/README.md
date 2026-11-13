@@ -1,0 +1,113 @@
+# Server: headless Debian VM on TrueNAS CORE
+
+wormhole and OwnTone run in a small Debian 13 (trixie) VM without a desktop. The VM gets its
+own LAN address, which multicast discovery needs (HomePods via mDNS, the turntable via SSDP).
+You install from GitHub once; after that, updates come from the web UI.
+
+| File | Purpose |
+|---|---|
+| `install.sh` | As root in the VM: packages, OwnTone, users, pipe, configs, services; re-runnable |
+| `wormhole.service` | systemd unit (installed as `/etc/systemd/system/wormhole.service`) |
+| `wormhole.env.example` | Settings, copied once to `/etc/wormhole/wormhole.env` |
+
+On the VM: code in `/opt/wormhole` (a git clone owned by `wormhole`), OwnTone's config at
+`/etc/owntone.conf` (rendered from `config/owntone.conf.in`), pipe at
+`/var/lib/wormhole/library/turntable`.
+
+## 1. Put the code on GitHub (once, on the Mac)
+
+Create an **empty public** repository `wormhole` on github.com (no README, no license), then:
+
+```bash
+cd ~/Documents/git/wormhole
+git remote add origin https://github.com/sGoette/wormhole.git
+git push -u origin main
+```
+
+## 2. Create the VM (TrueNAS CORE web UI)
+
+1. Download the **Debian 13 netinst ISO** for amd64 from https://www.debian.org/distrib/netinst
+2. **Virtual Machines → Add**:
+   - Guest OS **Linux**, name `wormhole`, boot method **UEFI**, VNC display **on**
+   - **2 vCPUs** (1 works), **1024 MiB** memory
+   - Disk: create a new zvol, type **VirtIO**, **10 GiB**
+   - Network: adapter **VirtIO**, **attach NIC = your physical LAN interface** (bridged; the VM
+     gets its own address from your router)
+   - Installation media: upload or pick the ISO
+3. Start the VM and open its **Display** (VNC) in the TrueNAS UI.
+
+## 3. Install Debian headless
+
+Normal installer. The important answers:
+- Hostname **`wormhole`**: the web UI is then at `http://wormhole.local:8766`
+- Set a root password (you can skip creating a user)
+- **Software selection: untick "Debian desktop environment" and "GNOME"**; tick only
+  **"SSH server"** (optional, for pasting commands from the Mac) and
+  **"standard system utilities"**
+
+After the reboot, remove the ISO from the VM's devices (CDROM).
+
+If the VM boots into a **UEFI shell** instead of Debian (a known snag with bhyve): type
+`FS0:\EFI\debian\grubx64.efi` to boot once, then as root:
+`mkdir -p /boot/efi/EFI/BOOT && cp /boot/efi/EFI/debian/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI`
+
+## 4. Install wormhole (VM console, as root)
+
+```sh
+apt-get update && apt-get install -y git
+git clone https://github.com/sGoette/wormhole.git /opt/wormhole
+/opt/wormhole/server/install.sh
+```
+
+It ends with the web UI address. Open it on the Mac or iPhone and:
+- switch on the HomePods (an Apple TV asks for the PIN it shows; press **Pair**)
+- in the Pro-Ject Control app (or Bubble UPnP, or `tools/fake_turntable.py` on the Mac),
+  choose the speaker **"Wormhole"**
+
+## Updates
+
+Web UI → **Software** → *Check for updates* → *Update now*. wormhole pulls the newest commit
+of `main` from GitHub and restarts itself; *Roll back* returns to the previous version.
+
+If the update touches `server/` or `config/owntone.conf.in`, the panel says so. Then run
+once, in the VM console as root: `/opt/wormhole/server/install.sh`
+
+Console alternative (git refuses to run as root on a checkout owned by another user):
+```sh
+runuser -u wormhole -- /opt/wormhole/bin/wormhole update check   # or: apply / rollback
+systemctl restart wormhole
+```
+
+Debian itself: `apt-get update && apt-get upgrade` now and then (as root).
+
+## Settings, logs, troubleshooting
+
+- Settings: `/etc/wormhole/wormhole.env`, then `systemctl restart wormhole`. Pipe or OwnTone
+  keys (`PCM_PIPE`, `PIPE_*`, `OWNTONE_URL`, `LOG_LEVEL`): re-run `install.sh` instead.
+- Logs: `journalctl -u wormhole -f` · OwnTone: `/var/log/owntone.log`
+- Status: `systemctl status owntone wormhole` · `/opt/wormhole/bin/wormhole info`
+- "Wormhole" not visible in the turntable app, or no HomePods listed: check that the VM's NIC
+  is attached to the LAN interface (bridged) and that it has an address in your LAN
+  (`hostname -I`).
+
+## OwnTone notes (verified 2026-11-13, OwnTone 29.3)
+
+- Installed from OwnTone's own Debian build (github.com/owntone/owntone-debian, version and
+  sha256 pinned in `install.sh`); the stock config is kept as `/etc/owntone.conf.dist`.
+- **HomePods on software 27+** need `user_agent = "AirPlay/999.0.0"` (in the template).
+  Otherwise they answer `403 Forbidden` to `GET /info` (OwnTone issue #2042).
+- **Pipe autostart is unreliable after a stop.** `src/wormhole/owntone.py`: `stop()` also
+  clears the queue; the feeder starts the pipe explicitly (`play_pipe()`) when the **first
+  audio** arrives. Starting earlier left the HomePods silent with FLAC (~3 s to first data,
+  longer than OwnTone's 2250 ms start buffer).
+- **PIN devices** (Apple TV): switch on → PIN shown → send the PIN alone → switch on again
+  (OwnTone issue #1967). The web UI does this with its *Pair* button.
+- Pipe format: `pipe_sample_rate` 44100/48000/88200/96000, `pipe_bits_per_sample` 16/32,
+  always stereo, host byte order. The pipe must be inside a library directory.
+
+## Moving to TrueNAS SCALE later
+
+VMs don't migrate from CORE (bhyve) to SCALE (KVM), but the VM's disk (zvol) does. Create a
+new VM on SCALE with that disk, or a fresh Debian VM / LXC container and repeat step 4 (about
+10 minutes). The only state outside `/etc/wormhole/wormhole.env` is OwnTone's speaker pairing:
+pair the Apple TV again.

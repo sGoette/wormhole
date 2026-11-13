@@ -30,9 +30,16 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.load("/nonexistent/x.env"), {})
 
     def test_shipped_env_files_parse(self):
-        root = Path(__file__).resolve().parents[1] / "config"
-        for name in ("local.env", "nas.env.example"):
-            self.assertIn("STREAM_PORT", config.parse_env_file(root / name), name)
+        root = Path(__file__).resolve().parents[1]
+        for name in ("config/local.env", "server/wormhole.env.example"):
+            self.assertIn("WEB_PORT", config.parse_env_file(root / name), name)
+
+    def test_mac_and_server_configs_have_the_same_keys(self):
+        root = Path(__file__).resolve().parents[1]
+        mac = set(config.parse_env_file(root / "config/local.env"))
+        server = set(config.parse_env_file(root / "server/wormhole.env.example"))
+        mac_only = {"STREAM_PORT"}  # fake turntable, Mac only
+        self.assertEqual(mac - mac_only, server)
 
 
 if __name__ == "__main__":

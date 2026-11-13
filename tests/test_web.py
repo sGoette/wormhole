@@ -81,7 +81,8 @@ class WebTest(unittest.TestCase):
         pin_calls = [line for line in web.PAGE.splitlines() if "{pin:" in line]
         self.assertEqual(len(pin_calls), 1, pin_calls)
         self.assertIn("/pair`", pin_calls[0])
-        self.assertEqual(web.PAGE.count(".onclick ="), web.PAGE.count("pairBtn.onclick") + 3)
+        self.assertEqual(web.PAGE.count("pairBtn.onclick"), 1)
+        self.assertNotIn('.pin.querySelector("button").onclick', web.PAGE)
 
     def test_page_served(self):
         with urllib.request.urlopen(self.base + "/", timeout=3) as resp:

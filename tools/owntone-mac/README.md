@@ -12,8 +12,7 @@ make owntone-run            # terminal 1: OwnTone in the foreground, web UI http
 | File | Purpose |
 |---|---|
 | `build.sh` | Homebrew deps, libinotify-kqueue 20240724, OwnTone 29.3 (checksums pinned) |
-| `owntone.conf.in` | Config template; every key checked against OwnTone 29.3 `src/conffile.c` |
-| `run.sh` | Fills the template from `config/local.env`, creates the pipe, starts OwnTone |
+| `run.sh` | Renders `config/owntone.conf.in` (shared with the server) from `config/local.env`, creates the pipe, starts OwnTone |
 
 Library = `.local/owntone/library/` (holds the `turntable` named pipe) + `tools/media/`.
 

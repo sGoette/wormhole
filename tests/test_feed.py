@@ -132,8 +132,8 @@ class ConfigPathTest(unittest.TestCase):
             config.path({}, "P")
 
     def test_shipped_configs_have_feed_settings(self):
-        for name in ("local.env", "nas.env.example"):
-            cfg = config.parse_env_file(config.ROOT / "config" / name)
+        for name in ("config/local.env", "server/wormhole.env.example"):
+            cfg = config.parse_env_file(config.ROOT / name)
             for key in ("PCM_PIPE", "PIPE_SAMPLE_RATE", "PIPE_BITS", "OWNTONE_URL"):
                 self.assertIn(key, cfg, f"{key} missing in {name}")
             feed.ffmpeg_command("tone", int(cfg["PIPE_SAMPLE_RATE"]), int(cfg["PIPE_BITS"]))

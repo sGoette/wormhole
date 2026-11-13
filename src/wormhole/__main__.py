@@ -1,12 +1,13 @@
 """CLI entry point: `bin/wormhole <command>`.
 
-Commands grow with the phases. `info` is used by the deploy script as a smoke test on the NAS.
+On the server, systemd runs `wormhole web`; install.sh uses `owntone-config`.
 """
 
 import argparse
 import logging
 import platform
 import sys
+from pathlib import Path
 from typing import Dict
 
 from . import __version__, config, feed
@@ -14,9 +15,14 @@ from .owntone import OwnTone, OwnToneError
 
 
 def cmd_info(cfg: Dict[str, str], _args: argparse.Namespace) -> int:
-    version_file = config.ROOT / "VERSION"
-    release = version_file.read_text().strip() if version_file.is_file() else "dev (not deployed)"
-    print(f"wormhole {__version__}  release: {release}")
+    from .update import UpdateError, Updater
+    try:
+        cur = Updater().current()
+        release = f"{cur['short']} {cur['date'][:10]} {cur['subject']}" if cur["available"] \
+            else cur["reason"]
+    except UpdateError as exc:
+        release = str(exc)
+    print(f"wormhole {__version__}  commit: {release}")
     print(f"python   {platform.python_version()} on {platform.system()} {platform.release()}")
     print(f"config   {cfg.get('_SOURCE', 'none found')}")
     for key in sorted(k for k in cfg if not k.startswith("_")):
@@ -39,6 +45,41 @@ def cmd_feed(cfg: Dict[str, str], args: argparse.Namespace) -> int:
 def cmd_web(cfg: Dict[str, str], args: argparse.Namespace) -> int:
     from . import web
     return web.serve(cfg, args.port or int(cfg.get("WEB_PORT", "8766")))
+
+
+def cmd_owntone_config(cfg: Dict[str, str], args: argparse.Namespace) -> int:
+    from . import owntoneconf
+    text = owntoneconf.render(cfg, user=args.user, data_dir=Path(args.data_dir),
+                              logfile=Path(args.logfile), name=args.name,
+                              extra_dirs=[Path(d) for d in args.dir])
+    if args.output:
+        Path(args.output).write_text(text)
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def cmd_update(cfg: Dict[str, str], args: argparse.Namespace) -> int:
+    from .update import UpdateError, Updater
+    up = Updater(remote=cfg.get("UPDATE_REMOTE", "origin"), branch=cfg.get("UPDATE_BRANCH", "main"))
+    try:
+        if args.action == "check":
+            s = up.check()
+            print(f"running:  {s['short']} {s['subject']}")
+            print(f"behind:   {s['behind']} commit(s) on {up.upstream}")
+            for c in s["commits"]:
+                print(f"  {c['short']} {c['subject']}")
+            if s["blocked_reason"]:
+                print(f"blocked:  {s['blocked_reason']}")
+        else:
+            r = up.apply() if args.action == "apply" else up.rollback()
+            print(f"{args.action}: {r['from']} -> {r['to']}; restart wormhole to load it")
+            if r["needs_install"]:
+                print("server files changed, run as root: server/install.sh")
+    except UpdateError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def cmd_owntone(cfg: Dict[str, str], args: argparse.Namespace) -> int:
@@ -93,6 +134,19 @@ def build_parser() -> argparse.ArgumentParser:
     web = sub.add_parser("web", help="web UI: speakers, volumes, feed (default port WEB_PORT)")
     web.add_argument("--port", type=int)
     web.set_defaults(func=cmd_web)
+
+    oc = sub.add_parser("owntone-config", help="render OwnTone's config from the template")
+    oc.add_argument("--user", required=True, help="user OwnTone runs as")
+    oc.add_argument("--data-dir", required=True, help="database + cache directory")
+    oc.add_argument("--logfile", required=True)
+    oc.add_argument("--name", default="wormhole on %h", help="library name (%%h = hostname)")
+    oc.add_argument("--dir", action="append", default=[], help="extra library directory")
+    oc.add_argument("-o", "--output", help="write here instead of stdout")
+    oc.set_defaults(func=cmd_owntone_config)
+
+    upd = sub.add_parser("update", help="update this checkout from GitHub")
+    upd.add_argument("action", choices=["check", "apply", "rollback"])
+    upd.set_defaults(func=cmd_update)
 
     ot = sub.add_parser("owntone", help="control OwnTone (speakers, player)")
     ot.set_defaults(func=cmd_owntone)

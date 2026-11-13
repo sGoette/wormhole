@@ -1,0 +1,19 @@
+# systemd unit for wormhole. install.sh replaces @REPO@ and installs it as
+# /etc/systemd/system/wormhole.service. Logs: journalctl -u wormhole -f
+[Unit]
+Description=wormhole: turntable UPnP renderer + web UI for OwnTone
+Wants=network-online.target
+After=network-online.target owntone.service
+
+[Service]
+User=wormhole
+Group=wormhole
+Environment=WORMHOLE_ENV=/etc/wormhole/wormhole.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@REPO@/bin/wormhole web
+# Updates from the web UI re-execute the process in place (same PID); this only covers crashes.
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

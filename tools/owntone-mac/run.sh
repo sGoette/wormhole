@@ -18,29 +18,16 @@ case "$PCM_PIPE" in /*) PIPE="$PCM_PIPE" ;; *) PIPE="$ROOT/$PCM_PIPE" ;; esac
 PIPE_DIR=$(dirname "$PIPE")
 DATA="$BASE/var"
 
-mkdir -p "$PIPE_DIR" "$DATA/cache" "$ROOT/tools/media"
+mkdir -p "$PIPE_DIR" "$DATA" "$ROOT/tools/media"
 if [ -e "$PIPE" ] && [ ! -p "$PIPE" ]; then
     echo "$PIPE exists but is not a named pipe" >&2
     exit 1
 fi
 [ -p "$PIPE" ] || mkfifo "$PIPE"
 
-# OwnTone's own "debug" logs every SQL query; "info" is the useful level for our DEBUG.
-case "${LOG_LEVEL:-INFO}" in
-    DEBUG) LOGLEVEL=info ;;
-    WARNING) LOGLEVEL=warning ;;
-    *) LOGLEVEL=log ;;
-esac
-
-sed -e "s|@USER@|$(id -un)|" \
-    -e "s|@DATA@|$DATA|g" \
-    -e "s|@LOGLEVEL@|$LOGLEVEL|" \
-    -e "s|@PORT@|$PORT|" \
-    -e "s|@PIPE_DIR@|$PIPE_DIR|" \
-    -e "s|@MEDIA@|$ROOT/tools/media|" \
-    -e "s|@PIPE_SAMPLE_RATE@|$PIPE_SAMPLE_RATE|" \
-    -e "s|@PIPE_BITS@|$PIPE_BITS|" \
-    tools/owntone-mac/owntone.conf.in > "$CONF"
+# Same template as the server (config/owntone.conf.in); tools/media added for local tests.
+WORMHOLE_ENV=config/local.env bin/wormhole owntone-config --user "$(id -un)" \
+    --data-dir "$DATA" --logfile "$DATA/owntone.log" --dir "$ROOT/tools/media" -o "$CONF"
 
 echo "config:  $CONF"
 echo "pipe:    $PIPE ($PIPE_SAMPLE_RATE Hz, $PIPE_BITS bit, stereo)"
