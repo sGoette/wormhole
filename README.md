@@ -1,7 +1,7 @@
 # wormhole
 
 Turntable → UPnP renderer (NAS jail) → PCM pipe → OwnTone → HomePods.
-The plan lives in [claude/STRATEGY.md](claude/STRATEGY.md); test results go in [RESULTS.md](RESULTS.md).
+The plan lives in [.claude/STRATEGY.md](.claude/STRATEGY.md); test results go in [RESULTS.md](RESULTS.md).
 
 ## Layout
 
@@ -16,6 +16,7 @@ The plan lives in [claude/STRATEGY.md](claude/STRATEGY.md); test results go in [
 | `scripts/` | Mac | Helpers, e.g. Phase 0 prerequisite check |
 | `tests/` | both | `unittest` tests (stdlib, no pytest needed) |
 | `results/logs/` | Mac | Raw logs/captures referenced from `RESULTS.md` |
+| `.claude/` | — | `CLAUDE.md` (structure + code style, loaded automatically by Claude Code) and `STRATEGY.md` |
 
 Rule of thumb: anything that might run on the NAS goes in `src/wormhole/` and reads its
 settings from `config/*.env` — never hard-code hosts, ports or paths. That way the same code

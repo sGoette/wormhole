@@ -18,7 +18,8 @@ class ConfigTest(unittest.TestCase):
 
     def test_parses_comments_blanks_and_quotes(self):
         path = self.write('# c\n\nA=1\nB="two words"\nC=\nD=x=y\n')
-        self.assertEqual(config.parse_env_file(path), {"A": "1", "B": "two words", "C": "", "D": "x=y"})
+        expected = {"A": "1", "B": "two words", "C": "", "D": "x=y"}
+        self.assertEqual(config.parse_env_file(path), expected)
 
     def test_environment_overrides_file(self):
         path = self.write("STREAM_PORT=8765\n")

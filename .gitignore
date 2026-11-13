@@ -5,3 +5,7 @@ __pycache__/
 .venv/
 results/logs/*
 !results/logs/.gitkeep
+tools/media/*
+!tools/media/README.md
+.claude/settings.local.json
+.local/

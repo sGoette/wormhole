@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
+# Repo root on the Mac, release dir on the NAS (src/wormhole/config.py -> ../../).
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def parse_env_file(path: Path) -> Dict[str, str]:
     values: Dict[str, str] = {}
@@ -30,3 +33,16 @@ def load(path: Optional[str] = None) -> Dict[str, str]:
         if key in os.environ:
             values[key] = os.environ[key]
     return values
+
+
+def require(cfg: Dict[str, str], key: str) -> str:
+    if not cfg.get(key):
+        source = cfg.get("_SOURCE", "no config file found")
+        raise SystemExit(f"setting {key} is missing (config: {source})")
+    return cfg[key]
+
+
+def path(cfg: Dict[str, str], key: str) -> Path:
+    """A path setting; relative values are relative to ROOT."""
+    p = Path(require(cfg, key)).expanduser()
+    return p if p.is_absolute() else ROOT / p

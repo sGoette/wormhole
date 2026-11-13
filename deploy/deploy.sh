@@ -23,7 +23,7 @@ KEEP_RELEASES=${KEEP_RELEASES:-5}
 
 remote() { ssh "$NAS_SSH" "$@"; }
 
-# What gets shipped. Mac-only things (tools/, results/, deploy/, claude/) stay home.
+# What gets shipped. Mac-only things (tools/, results/, deploy/, .claude/) stay home.
 SHIP="bin src nas"
 
 release_name() {
@@ -72,9 +72,12 @@ dry-run)
     rsync -rlptzn --delete -v "$STAGE/" "$NAS_SSH:$NAS_PATH/releases/dry-run/"
     ;;
 rollback)
+    # Release names start with a timestamp, so name order = age. Step one back from 'current'.
     remote "cd $NAS_PATH && cur=\$(readlink current | sed 's|releases/||') \
-        && prev=\$(ls -1t releases | grep -vx \"\$cur\" | head -1) \
-        && [ -n \"\$prev\" ] && ln -sfn releases/\$prev current && echo \"rolled back: \$cur -> \$prev\""
+        && prev=\$(ls -1 releases | sort \
+                   | awk -v c=\"\$cur\" '\$0 == c { print p; exit } { p = \$0 }') \
+        && { [ -n \"\$prev\" ] || { echo 'no older release' >&2; exit 1; }; } \
+        && ln -sfn releases/\$prev current && echo \"rolled back: \$cur -> \$prev\""
     [ -n "$RESTART_CMD" ] && remote "$RESTART_CMD"
     smoke
     ;;
