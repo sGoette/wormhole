@@ -48,6 +48,7 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 | `.local/` | Mac | Git-ignored build output + runtime data (`.local/owntone/`: binary, db, log, pipe). |
 | `scripts/` | Mac | Local helpers (`check-prereqs.sh` = Phase 0). |
 | `tests/` | Mac | `unittest` tests, `test_*.py`. |
+| `RESULTS.md` | Mac | Test log. Git-ignored: it holds device names, IDs and LAN addresses. |
 | `results/logs/` | Mac | Raw logs referenced from `RESULTS.md` (contents git-ignored). |
 | `.claude/` | — | `CLAUDE.md` (this file, auto-loaded), `STRATEGY.md`; `settings.local.json` git-ignored. |
 
@@ -90,7 +91,9 @@ When adding a directory or a new kind of file, update this table and the README 
 
 ### Git
 - Branch `main`. Short imperative subject line, body explains why.
-- Never commit logs, captures, audio files or `.local/`.
+- Never commit logs, captures, audio files, `.local/` or `RESULTS.md`. Committed files use
+  neutral examples ("Kitchen HomePod", `192.0.2.x`), never real device names, IDs or LAN
+  addresses from the user's network.
 
 ## Commands
 

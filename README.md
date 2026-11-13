@@ -1,7 +1,8 @@
 # wormhole
 
 Turntable → UPnP renderer → PCM pipe → OwnTone → HomePods, controlled from a web UI.
-The plan lives in [.claude/STRATEGY.md](.claude/STRATEGY.md); test results go in [RESULTS.md](RESULTS.md).
+The plan lives in [.claude/STRATEGY.md](.claude/STRATEGY.md); test results go in `RESULTS.md`
+(local only, git-ignored: it names devices and addresses from the home network).
 
 ## Layout
 

@@ -8,3 +8,4 @@ tools/media/*
 !tools/media/README.md
 .claude/settings.local.json
 .local/
+RESULTS.md
