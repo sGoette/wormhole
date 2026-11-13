@@ -9,6 +9,11 @@ general {
 	logfile = "@DATA@/owntone.log"
 	# fatal, log, warning, info, debug, spam
 	loglevel = @LOGLEVEL@
+
+	# HomePod software 27 answers 403 to OwnTone 29.3's default User-Agent ("owntone/29.3").
+	# Verified 2026-11-13 on a HomePod: 403 with the default, 200 with this value.
+	# OwnTone issue #2042; the default changed in OwnTone master after 29.3.
+	user_agent = "AirPlay/999.0.0"
 }
 
 library {

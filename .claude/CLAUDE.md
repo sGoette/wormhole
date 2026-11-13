@@ -26,6 +26,8 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 | `src/wormhole/config.py` | Mac + NAS | `KEY=VALUE` env loader; env vars override; relative paths → repo root. |
 | `src/wormhole/feed.py` | Mac + NAS | `wormhole feed`: input → ffmpeg → raw PCM → OwnTone named pipe, auto-restart. |
 | `src/wormhole/owntone.py` | Mac + NAS | OwnTone JSON API client; `wormhole owntone outputs/select/status/…`. |
+| `src/wormhole/web.py` | Mac + NAS | `wormhole web`: speakers on/off + volume, feed start/stop. Seed of Phase 6. |
+| `src/wormhole/renderer.py` | Mac + NAS | Own UPnP MediaRenderer (SSDP, AVTransport, RC, CM, GENA), started by `web` when `RENDERER_NAME` is set; Play → shared feed. Replaces a ports renderer + separate decode step (decided 2026-11-13). |
 | `bin/wormhole` | Mac + NAS | POSIX sh launcher; sets `PYTHONPATH`, picks `config/active.env` → `config/local.env`. |
 | `config/local.env` | Mac | Mac runtime settings. |
 | `config/nas.env.example` | — | Template for `config/nas.env` (git-ignored): deploy target + NAS runtime settings. |
@@ -82,7 +84,7 @@ When adding a directory or a new kind of file, update this table and the README 
 
 ```bash
 make test | make check | make run ARGS="info"
-make turntable | make owntone-build | make owntone-run | make feed INPUT=tone|file|URL
+make turntable | make owntone-build | make owntone-run | make web | make feed INPUT=…
 bin/wormhole owntone outputs | select NAME... [--volume N] | status | stop | pin NAME PIN
 make deploy | make deploy-dry | make rollback | make nas-status | make nas-logs | make nas-ssh
 DEPLOY_ENV=path/to/other.env make deploy   # different target

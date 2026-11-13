@@ -15,6 +15,26 @@ is the starting point.
   `PUT /api/player/{play,pause,stop}`.
 - FreeBSD: `pkg install owntone` (ports `audio/owntone`), per the OwnTone install docs.
 
+## Required for HomePods on software 27+
+
+`user_agent = "AirPlay/999.0.0"` in the `general` section. Without it, HomePods answer
+`403 Forbidden` to `GET /info` and refuse to activate. Verified on a HomePod on 2026-11-13;
+see OwnTone issue #2042. OwnTone versions after 29.3 send this by default. The FreeBSD port
+is likely 29.3 or older, so set it explicitly there.
+
+## Pipe autostart is not reliable after a stop
+
+After `PUT /api/player/stop`, the pipe stays the player's current item, and OwnTone's
+autostart (`pipe_read_cb` in `src/inputs/pipe.c`) treats new data as "already playing". Even
+with the queue cleared, the re-armed pipe watch didn't fire again in our tests on macOS
+(2026-11-13), though timing changed the outcome. So `src/wormhole/owntone.py`:
+- `stop()` = `PUT /api/player/stop` + `PUT /api/queue/clear`
+- `play_pipe()` = `POST /api/queue/items/add?uris=<pipe>&clear=true&playback=start`, sent
+  by the feeder when the **first audio data** arrives (`feed.Feeder(on_first_data=…)`).
+  Sending it earlier (before data) works for the fifo output but left the HomePods silent with
+  FLAC, which takes ~3 s to start, longer than OwnTone's `start_buffer_ms` (2250 ms).
+Recheck on FreeBSD; autostart may behave differently with a different event backend.
+
 ## Still open (STRATEGY.md §5.3)
 
 Whether the ports version handles AirPlay 2 HomePods cleanly, given the 2024 crash report.

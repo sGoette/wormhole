@@ -19,6 +19,23 @@ Library = `.local/owntone/library/` (holds the `turntable` named pipe) + `tools/
 
 ## Phase 3 test steps
 
+Easiest: two terminals, then everything in the browser (also works from the iPhone):
+
+```bash
+make owntone-run            # terminal 1
+make web                    # terminal 2 → http://localhost:8766
+```
+
+The page lists every speaker with an on/off switch and its own volume slider, and starts or
+stops the feed into the pipe (tone, a file from `tools/media/`, or the fake turntable URL).
+
+`make web` also starts the UPnP renderer **"Wormhole (Mac)"** (`RENDERER_NAME` in
+`config/local.env`). It shows up as a speaker in the fake turntable (`make turntable`),
+Bubble UPnP and, presumably, the Pro-Ject Control app. Play there → the stream goes through
+the feed into OwnTone → selected HomePods. The web UI shows the renderer's state.
+
+Same steps on the command line:
+
 ```bash
 bin/wormhole owntone outputs                         # HomePods should be listed
 bin/wormhole owntone select Kitchen --volume 25      # one HomePod

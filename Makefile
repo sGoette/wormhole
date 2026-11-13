@@ -1,7 +1,7 @@
 PY      ?= python3
 ARGS    ?= info
 
-.PHONY: help check test run turntable owntone-build owntone-run feed \
+.PHONY: help check test run turntable owntone-build owntone-run web feed \
         deploy deploy-dry rollback nas-status nas-logs nas-ssh
 
 help:
@@ -24,6 +24,9 @@ owntone-build: ## Build OwnTone into .local/owntone (Mac, once)
 
 owntone-run: ## Run local OwnTone in the foreground (web UI :3689)
 	tools/owntone-mac/run.sh
+
+web: ## Web UI: speakers, volumes, feed (http://localhost:8766)
+	WORMHOLE_ENV=config/local.env bin/wormhole web
 
 feed: ## Feed PCM into OwnTone's pipe (make feed INPUT=tone|file|URL)
 	WORMHOLE_ENV=config/local.env bin/wormhole feed $(if $(INPUT),--input "$(INPUT)")

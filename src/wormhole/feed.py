@@ -1,29 +1,41 @@
 """Feed raw PCM into OwnTone's named pipe: input (tone, file or stream URL) -> ffmpeg -> FIFO.
 
-OwnTone (pipe_autostart) starts playing when data arrives. ffmpeg is restarted with backoff
-when it exits, e.g. when the source stream drops or OwnTone closes the pipe.
+ffmpeg writes PCM to stdout and this module relays it into the FIFO. That way we know when the
+first audio is actually there (`on_first_data`, used to start OwnTone exactly then) and how
+much is flowing, and the FIFO stays open while ffmpeg restarts after a dropout (OwnTone
+underruns and resumes instead of seeing end-of-file).
+
+Why start OwnTone only on the first data: OwnTone's start buffer is 2250 ms
+(general.start_buffer_ms). A FLAC live stream takes ~3 s until ffmpeg emits PCM, so starting
+OwnTone earlier left the HomePods silent while OwnTone itself played (2026-11-13).
+
 PCM is little-endian (s16le / s32le): OwnTone reads host byte order, and both the Mac (arm64)
 and the NAS (amd64) are little-endian.
 """
 
+import errno
 import logging
 import os
+import select
 import signal
 import stat
 import subprocess
 import threading
 import time
+from collections import deque
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, IO, List, Optional
 
 log = logging.getLogger(__name__)
 
 TONE = "tone"
 VALID_RATES = (44100, 48000, 88200, 96000)  # what OwnTone's pipe input accepts
 VALID_BITS = (16, 32)
+CHUNK = 16384  # ~93 ms of 44.1 kHz s16 stereo
 
 
-def ffmpeg_command(source: str, pipe: Path, rate: int, bits: int) -> List[str]:
+def ffmpeg_command(source: str, rate: int, bits: int) -> List[str]:
+    """ffmpeg that writes raw PCM for OwnTone's pipe to stdout."""
     if rate not in VALID_RATES:
         raise ValueError(f"sample rate {rate} not accepted by OwnTone ({VALID_RATES})")
     if bits not in VALID_BITS:
@@ -36,7 +48,7 @@ def ffmpeg_command(source: str, pipe: Path, rate: int, bits: int) -> List[str]:
     else:
         cmd += ["-re", "-stream_loop", "-1", "-i", source]
     pcm = "s16le" if bits == 16 else "s32le"
-    cmd += ["-map", "0:a:0", "-ac", "2", "-ar", str(rate), "-f", pcm, "-y", str(pipe)]
+    cmd += ["-map", "0:a:0", "-ac", "2", "-ar", str(rate), "-f", pcm, "-"]
     return cmd
 
 
@@ -53,12 +65,26 @@ def ensure_fifo(pipe: Path) -> None:
 class Feeder:
     MIN_BACKOFF, MAX_BACKOFF, HEALTHY_AFTER = 1.0, 15.0, 30.0
 
-    def __init__(self, source: str, pipe: Path, rate: int, bits: int):
-        self.cmd = ffmpeg_command(source, pipe, rate, bits)
+    def __init__(self, source: str, pipe: Path, rate: int, bits: int,
+                 on_first_data: Optional[Callable[[], None]] = None):
+        self.cmd = ffmpeg_command(source, rate, bits)
         self.source, self.pipe = source, pipe
+        self.on_first_data = on_first_data
         self.proc: Optional[subprocess.Popen] = None
         self.stopping = False
         self._wake = threading.Event()
+        self._fd: Optional[int] = None
+        # Status, read by the web UI.
+        self.started_at: Optional[float] = None
+        self.restarts = 0
+        self.last_error = ""
+        self.bytes_written = 0
+        self.last_data_at = 0.0
+
+    def install_signal_handlers(self) -> None:
+        """Ctrl+C / SIGTERM stop the feed cleanly. Main thread only."""
+        signal.signal(signal.SIGTERM, self.stop)
+        signal.signal(signal.SIGINT, self.stop)
 
     def stop(self, *_args) -> None:
         self.stopping = True
@@ -66,28 +92,119 @@ class Feeder:
         if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
 
+    def flowing(self, within: float = 2.0) -> bool:
+        return time.time() - self.last_data_at < within
+
+    # -- main loop
     def run(self) -> int:
         ensure_fifo(self.pipe)
-        signal.signal(signal.SIGTERM, self.stop)
-        signal.signal(signal.SIGINT, self.stop)
+        self.started_at = time.time()
         backoff = self.MIN_BACKOFF
-        while not self.stopping:
-            log.info("feeding %s -> %s", self.source, self.pipe)
-            log.debug("ffmpeg: %s", " ".join(self.cmd))
-            started = time.monotonic()
-            # Opening a FIFO for writing blocks until a reader (OwnTone) has it open.
-            self.proc = subprocess.Popen(self.cmd, stderr=subprocess.PIPE)
-            _, err = self.proc.communicate()
-            if self.stopping:
-                break
-            ran = time.monotonic() - started
-            detail = err.decode("utf-8", "replace").strip() or "no error output"
-            log.warning("ffmpeg exited with %s after %.0fs: %s", self.proc.returncode, ran, detail)
-            if ran > self.HEALTHY_AFTER:
-                backoff = self.MIN_BACKOFF
-            else:
-                backoff = min(backoff * 2, self.MAX_BACKOFF)
-            log.info("restarting in %.0fs", backoff)
-            self._wake.wait(backoff)  # returns early on stop()
-        log.info("feed stopped")
+        first_data_pending = self.on_first_data is not None
+        try:
+            while not self.stopping:
+                log.info("feeding %s -> %s", self.source, self.pipe)
+                log.debug("ffmpeg: %s", " ".join(self.cmd))
+                started = time.monotonic()
+                self.proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE)
+                if self.stopping:  # stop() raced with Popen and saw no process yet
+                    self.proc.terminate()
+                errors: deque = deque(maxlen=10)
+                drain = threading.Thread(target=self._drain, args=(self.proc.stderr, errors),
+                                         daemon=True)
+                drain.start()
+                reason, first_data_pending = self._relay(self.proc.stdout, first_data_pending)
+                self._end_process()
+                drain.join(timeout=1)
+                if self.stopping:
+                    break
+                ran = time.monotonic() - started
+                detail = " | ".join(errors) or reason
+                self.restarts += 1
+                self.last_error = f"ffmpeg exited with {self.proc.returncode}: {detail}"
+                log.warning("ffmpeg exited with %s after %.0fs: %s",
+                            self.proc.returncode, ran, detail)
+                backoff = self.MIN_BACKOFF if ran > self.HEALTHY_AFTER else min(
+                    backoff * 2, self.MAX_BACKOFF)
+                log.info("restarting in %.0fs", backoff)
+                self._wake.wait(backoff)  # returns early on stop()
+        finally:
+            self._close_fifo()
+            log.info("feed stopped")
         return 0
+
+    def _relay(self, stdout: IO[bytes], first_data_pending: bool):
+        """Copy ffmpeg's stdout into the FIFO. Returns (reason it ended, first_data_pending)."""
+        while not self.stopping:
+            chunk = stdout.read1(CHUNK)
+            if not chunk:
+                return "ffmpeg ended its output", first_data_pending
+            if self._fd is None and not self._open_fifo():
+                return "stopped while waiting for a pipe reader", first_data_pending
+            if first_data_pending:
+                first_data_pending = False
+                self._first_data()
+            if not self._write(chunk):
+                return "the reader closed the pipe", first_data_pending
+        return "stopped", first_data_pending
+
+    def _first_data(self) -> None:
+        log.info("first audio data; starting playback")
+        try:
+            self.on_first_data()
+        except Exception as exc:  # noqa: BLE001 - report any failure, keep feeding
+            self.last_error = f"could not start playback: {exc}"
+            log.warning("%s", self.last_error)
+
+    # -- FIFO handling (non-blocking, so stop() is never stuck behind a full pipe)
+    def _open_fifo(self) -> bool:
+        waiting_logged = False
+        while not self.stopping:
+            try:
+                self._fd = os.open(self.pipe, os.O_WRONLY | os.O_NONBLOCK)
+                return True
+            except OSError as exc:
+                if exc.errno != errno.ENXIO:  # ENXIO = no reader yet
+                    raise
+            if not waiting_logged:
+                log.warning("waiting for a reader on %s (is OwnTone running?)", self.pipe)
+                waiting_logged = True
+            self._wake.wait(0.5)
+        return False
+
+    def _write(self, chunk: bytes) -> bool:
+        view = memoryview(chunk)
+        while view and not self.stopping:
+            try:
+                written = os.write(self._fd, view)
+                view = view[written:]
+            except BlockingIOError:
+                select.select([], [self._fd], [], 0.5)
+            except BrokenPipeError:
+                self._close_fifo()
+                return False
+        self.bytes_written += len(chunk)
+        self.last_data_at = time.time()
+        return True
+
+    def _close_fifo(self) -> None:
+        if self._fd is not None:
+            os.close(self._fd)
+            self._fd = None
+
+    def _end_process(self) -> None:
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+
+    @staticmethod
+    def _drain(stream: IO[bytes], into: deque) -> None:
+        for line in stream:
+            text = line.decode("utf-8", "replace").strip()
+            if text:
+                into.append(text)

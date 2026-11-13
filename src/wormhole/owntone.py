@@ -6,14 +6,44 @@ PUT /api/player/{play,pause,stop}.
 """
 
 import json
+import re
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
 class OwnToneError(Exception):
     pass
+
+
+# "[2026-11-13 11:21:11] [  LOG] [   player (9792)]  airplay: Response to GET /info ..."
+LOG_LINE = re.compile(
+    r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] \[\s*(FATAL|LOG|WARN)\] \[[^\]]*\]\s+(\w+): (.*)$")
+
+
+def log_problems_since(log_path: Path, since: float, limit: int = 4) -> List[str]:
+    """OwnTone log lines at WARN or worse since `since` (epoch). OwnTone's API only answers
+    "400 Bad Request" on failures; the reason is in its log."""
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 65536))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    found = []
+    for line in lines:
+        m = LOG_LINE.match(line)
+        if not m or "JSON api request failed" in line:
+            continue
+        stamp = time.mktime(time.strptime(m.group(1), "%Y-%m-%d %H:%M:%S"))  # local time
+        if stamp >= int(since) - 1:
+            found.append(f"{m.group(3)}: {m.group(4).strip()}")
+    return found[-limit:]
 
 
 @dataclass
@@ -55,6 +85,8 @@ class OwnTone:
         except urllib.error.HTTPError as exc:
             with exc:
                 detail = exc.read()[:300].decode("utf-8", "replace").strip()
+            title = re.search(r"<h1>(.*?)</h1>", detail, re.S)  # OwnTone sends an HTML page
+            detail = title.group(1).strip() if title else detail
             raise OwnToneError(f"{method} {path}: HTTP {exc.code} {detail}") from None
         except OSError as exc:
             raise OwnToneError(f"cannot reach OwnTone at {self.base_url}: {exc}") from None
@@ -63,6 +95,9 @@ class OwnTone:
     # -- outputs (speakers)
     def outputs(self) -> List[Output]:
         return [Output.from_json(o) for o in self._request("GET", "/api/outputs")["outputs"]]
+
+    def output(self, output_id: str) -> Output:
+        return Output.from_json(self._request("GET", f"/api/outputs/{output_id}"))
 
     def set_outputs(self, ids: List[str]) -> None:
         """Enable exactly these outputs; all others are disabled."""
@@ -97,6 +132,32 @@ class OwnTone:
     def player(self) -> Dict[str, Any]:
         return self._request("GET", "/api/player")
 
+    def pipe_uri(self, name: str) -> str:
+        """Library URI of the named pipe called `name` (file name, not full path: the path
+        OwnTone sees can differ from ours, e.g. inside a jail)."""
+        expr = urllib.parse.quote("data_kind is pipe")
+        items = self._request("GET", f"/api/search?type=tracks&expression={expr}")
+        pipes = items.get("tracks", {}).get("items", [])
+        named = [t for t in pipes if Path(t.get("path", "")).name == name]
+        if len(named) == 1:
+            return named[0]["uri"]
+        found = ", ".join(t.get("path", "?") for t in pipes) or "none"
+        raise OwnToneError(f"no unique pipe named {name!r} in the OwnTone library "
+                           f"(pipes found: {found}); is it inside a library directory?")
+
+    def play_pipe(self, name: str) -> None:
+        """Start playing the pipe now, instead of relying on pipe_autostart.
+
+        Autostart does not reliably fire again after a stop (OwnTone 29.3, seen on macOS on
+        2026-11-13). Started before data arrives, OwnTone waits (state 'pause') and plays as
+        soon as data flows.
+        """
+        uri = urllib.parse.quote(self.pipe_uri(name), safe=":")
+        self._request("POST", f"/api/queue/items/add?uris={uri}&clear=true&playback=start")
+
+    def set_master_volume(self, volume: int) -> None:
+        self._request("PUT", f"/api/player/volume?volume={int(volume)}")
+
     def play(self) -> None:
         self._request("PUT", "/api/player/play")
 
@@ -104,4 +165,12 @@ class OwnTone:
         self._request("PUT", "/api/player/pause")
 
     def stop(self) -> None:
+        """Stop playback *and* clear the queue.
+
+        A plain stop leaves the pipe as the player's current item. OwnTone's pipe autostart
+        (pipe.c, pipe_read_cb) then treats new data as "already playing" and never restarts,
+        so the next Play stays silent. Clearing the queue resets the current item.
+        Verified against OwnTone 29.3 on 2026-11-13.
+        """
         self._request("PUT", "/api/player/stop")
+        self._request("PUT", "/api/queue/clear")

@@ -18,9 +18,19 @@ OUTPUTS = {"outputs": [
 ]}
 
 
+BAD_REQUEST = (b"<html> <head> <title>400 Bad Request</title> </head> <body> "
+               b"<h1>Bad Request</h1> </body> </html>")  # what OwnTone 29.3 sends on failure
+
+# Not in OUTPUTS (keeps the listing tests stable); behaves like an Apple TV that needs PIN pairing:
+# switching on fails until paired, the PIN is "1234".
+PIN_DEVICE = {"id": "444", "name": "Apple TV", "type": "AirPlay 2", "selected": False,
+              "volume": 45, "requires_auth": True, "needs_auth_key": True}
+
+
 class FakeOwnTone:
     def __init__(self) -> None:
         self.requests: List[Tuple[str, str, object]] = []
+        self.paired = False
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -31,18 +41,35 @@ class FakeOwnTone:
                 outer.requests.append(("GET", self.path, None))
                 if self.path == "/api/outputs":
                     return self._reply(200, OUTPUTS)
+                if self.path == "/api/outputs/444":
+                    return self._reply(200, dict(PIN_DEVICE, needs_auth_key=not outer.paired))
                 if self.path == "/api/player":
                     return self._reply(200, {"state": "play", "volume": 40})
+                if self.path.startswith("/api/search?type=tracks&expression=data_kind%20is"):
+                    return self._reply(200, {"tracks": {"items": [
+                        {"id": 7, "uri": "library:track:7", "path": "/srv/lib/turntable"}]}})
                 self._reply(404, None)
+
+            def do_POST(self):
+                outer.requests.append(("POST", self.path, None))
+                self._reply(200, {"count": 1})
 
             def do_PUT(self):
                 n = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(n)) if n else None
                 outer.requests.append(("PUT", self.path, body))
-                self._reply(204 if self.path != "/api/outputs/999" else 400, None)
+                if self.path == "/api/outputs/999":
+                    return self._reply(400, None, BAD_REQUEST)
+                if self.path == "/api/outputs/444":
+                    if "pin" in body:
+                        outer.paired = body["pin"] == "1234"
+                        return self._reply(204 if outer.paired else 400, None, BAD_REQUEST)
+                    if body.get("selected") and not outer.paired:
+                        return self._reply(400, None, BAD_REQUEST)  # device now shows a PIN
+                self._reply(204, None)
 
-            def _reply(self, status, data):
-                raw = json.dumps(data).encode() if data is not None else b""
+            def _reply(self, status, data, raw=b""):
+                raw = json.dumps(data).encode() if data is not None else raw
                 self.send_response(status)
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
@@ -90,15 +117,57 @@ class OwnToneTest(unittest.TestCase):
     def test_player_controls(self):
         self.assertEqual(self.ot.player()["state"], "play")
         self.ot.stop()
-        self.assertEqual(self.fake.requests[-1][:2], ("PUT", "/api/player/stop"))
+        # stop must also clear the queue, or pipe autostart never fires again
+        self.assertEqual([r[:2] for r in self.fake.requests[-2:]],
+                         [("PUT", "/api/player/stop"), ("PUT", "/api/queue/clear")])
 
-    def test_http_error_raised(self):
-        with self.assertRaisesRegex(OwnToneError, "HTTP 400"):
+    def test_play_pipe_queues_and_starts_it(self):
+        self.ot.play_pipe("turntable")
+        self.assertEqual(self.fake.requests[-1][:2], (
+            "POST", "/api/queue/items/add?uris=library:track:7&clear=true&playback=start"))
+
+    def test_play_pipe_unknown_name(self):
+        with self.assertRaisesRegex(OwnToneError, "no unique pipe named 'other'.*turntable"):
+            self.ot.play_pipe("other")
+
+    def test_http_error_html_reduced_to_title(self):
+        with self.assertRaises(OwnToneError) as ctx:
             self.ot.update_output("999", selected=True)
+        self.assertEqual(str(ctx.exception), "PUT /api/outputs/999: HTTP 400 Bad Request")
 
     def test_unreachable_server(self):
         with self.assertRaisesRegex(OwnToneError, "cannot reach OwnTone"):
             OwnTone("http://127.0.0.1:1", timeout=1).outputs()
+
+
+REAL_LOG = """\
+[2026-11-13 11:19:55] [ INFO] [   worker (5392)]  airplay: Failed to retrieve artwork
+[2026-11-13 11:21:11] [  LOG] [   player (9792)]  airplay: Response to GET /info from \
+'Kitchen HomePod' was negative, aborting (403 Forbidden)
+[2026-11-13 11:21:11] [  LOG] [   player (9792)]   player: The AirPlay 2 device \
+'Kitchen HomePod' failed to activate
+[2026-11-13 11:21:11] [  LOG] [   worker (2272)]      web: JSON api request failed with \
+error code 400 (/api/outputs/111)
+"""
+
+
+class LogTest(unittest.TestCase):
+    def test_problems_since_filters_time_level_and_noise(self):
+        import tempfile
+        import time
+        from pathlib import Path
+        from wormhole.owntone import log_problems_since
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "owntone.log"
+            log.write_text(REAL_LOG)
+            since = time.mktime(time.strptime("2026-11-13 11:21:11", "%Y-%m-%d %H:%M:%S"))
+            self.assertEqual(log_problems_since(log, since), [
+                "airplay: Response to GET /info from 'Kitchen HomePod' was negative, "
+                "aborting (403 Forbidden)",
+                "player: The AirPlay 2 device 'Kitchen HomePod' failed to activate",
+            ])
+            self.assertEqual(log_problems_since(log, since + 60), [])
+            self.assertEqual(log_problems_since(Path(d) / "missing.log", 0), [])
 
 
 if __name__ == "__main__":

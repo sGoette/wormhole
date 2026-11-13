@@ -32,7 +32,13 @@ def cmd_feed(cfg: Dict[str, str], args: argparse.Namespace) -> int:
         rate=int(cfg.get("PIPE_SAMPLE_RATE", "44100")),
         bits=int(cfg.get("PIPE_BITS", "16")),
     )
+    feeder.install_signal_handlers()
     return feeder.run()
+
+
+def cmd_web(cfg: Dict[str, str], args: argparse.Namespace) -> int:
+    from . import web
+    return web.serve(cfg, args.port or int(cfg.get("WEB_PORT", "8766")))
 
 
 def cmd_owntone(cfg: Dict[str, str], args: argparse.Namespace) -> int:
@@ -83,6 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
     fd.add_argument("--input", help="'tone', an audio file, or a stream URL "
                                     "(default: FEED_INPUT from config)")
     fd.set_defaults(func=cmd_feed)
+
+    web = sub.add_parser("web", help="web UI: speakers, volumes, feed (default port WEB_PORT)")
+    web.add_argument("--port", type=int)
+    web.set_defaults(func=cmd_web)
 
     ot = sub.add_parser("owntone", help="control OwnTone (speakers, player)")
     ot.set_defaults(func=cmd_owntone)
