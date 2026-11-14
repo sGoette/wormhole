@@ -32,6 +32,11 @@ library {
 	# OwnTone accepts 44100, 48000, 88200, 96000 and 16 or 32 bits; always 2 channels.
 	pipe_sample_rate = @PIPE_SAMPLE_RATE@
 	pipe_bits_per_sample = @PIPE_BITS@
+
+	# Per-track artwork. wormhole sets the pipe's "now playing" image on its queue item
+	# (artwork_url = file:..., NOW_PLAYING_ARTWORK). OwnTone 29.3 src/artwork.c only looks at
+	# a track's own artwork when this is on; otherwise it tries the album, and the pipe has none.
+	artwork_individual = true
 }
 
 # OwnTone's own sound output ("Computer", ALSA/PulseAudio). The server VM has no sound card,

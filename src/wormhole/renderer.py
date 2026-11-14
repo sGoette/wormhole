@@ -21,6 +21,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape, quoteattr
 
@@ -48,6 +49,11 @@ SINK_PROTOCOL_INFO = ",".join(f"http-get:*:{m}:*" for m in SINK_MIME)
 
 NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
 COUNTER_NOT_IMPLEMENTED = "2147483647"  # AVTransport spec value for unsupported counters
+
+# Shown by control apps that list renderers (rendered by tools/make_icons.py).
+ICON_DIR = Path(__file__).resolve().parent / "frontend" / "icons"
+ICON_SIZES = (48, 120, 256)
+ICONS = {f"/icons/renderer-{s}.png": ICON_DIR / f"renderer-{s}.png" for s in ICON_SIZES}
 
 
 def udn_for(name: str) -> str:
@@ -236,6 +242,10 @@ def description_xml(name: str, udn: str) -> bytes:
         f"<SCPDURL>/{sid}/scpd.xml</SCPDURL><controlURL>/{sid}/control</controlURL>"
         f"<eventSubURL>/{sid}/event</eventSubURL></service>"
         for sid, stype in SERVICES.items())
+    # UPnP device description: mimetype, width, height, depth and url per icon
+    icons = "".join(
+        f"<icon><mimetype>image/png</mimetype><width>{s}</width><height>{s}</height>"
+        f"<depth>24</depth><url>/icons/renderer-{s}.png</url></icon>" for s in ICON_SIZES)
     return (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<root xmlns="urn:schemas-upnp-org:device-1-0">'
@@ -246,7 +256,7 @@ def description_xml(name: str, udn: str) -> bytes:
         "<modelName>wormhole renderer</modelName>"
         f"<modelNumber>{__version__}</modelNumber>"
         "<modelDescription>UPnP renderer feeding OwnTone (AirPlay 2)</modelDescription>"
-        f"<UDN>{udn}</UDN><serviceList>{services}</serviceList>"
+        f"<UDN>{udn}</UDN><iconList>{icons}</iconList><serviceList>{services}</serviceList>"
         "</device></root>"
     ).encode()
 
@@ -643,6 +653,12 @@ def make_handler(renderer: Renderer, subs: Subscriptions) -> type:
             path = self.path.split("?")[0]
             if path == "/description.xml":
                 return self._send(200, description_xml(renderer.name, renderer.udn))
+            if path in ICONS:
+                try:
+                    return self._send(200, ICONS[path].read_bytes(),
+                                      content_type="image/png")
+                except OSError:
+                    return self._send(404, b"")
             sid, kind = paths.get(path, ("", ""))
             if kind == "scpd.xml":
                 return self._send(200, scpd_xml(*SPECS[sid]))
@@ -696,10 +712,11 @@ def make_handler(renderer: Renderer, subs: Subscriptions) -> type:
             length = int(self.headers.get("Content-Length") or 0)
             return self.rfile.read(length) if length else b""
 
-        def _send(self, status: int, body: bytes, headers: Optional[dict] = None) -> None:
+        def _send(self, status: int, body: bytes, headers: Optional[dict] = None,
+                  content_type: str = 'text/xml; charset="utf-8"') -> None:
             self.send_response(status)
             if body:
-                self.send_header("Content-Type", 'text/xml; charset="utf-8"')
+                self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("EXT", "")
             for k, v in (headers or {}).items():

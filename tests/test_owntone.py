@@ -1,6 +1,7 @@
 """OwnTone client against an in-process fake of the JSON API (loopback only)."""
 
 import json
+from pathlib import Path
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,7 +56,7 @@ class FakeOwnTone:
 
             def do_POST(self):
                 outer.requests.append(("POST", self.path, None))
-                self._reply(200, {"count": 1})
+                self._reply(200, {"count": 1, "items": [{"id": 42}]})
 
             def do_PUT(self):
                 n = int(self.headers.get("Content-Length") or 0)
@@ -128,6 +129,25 @@ class OwnToneTest(unittest.TestCase):
         self.ot.play_pipe("turntable")
         self.assertEqual(self.fake.requests[-1][:2], (
             "POST", "/api/queue/items/add?uris=library:track:7&clear=true&playback=start"))
+
+    def test_play_pipe_sets_artwork_before_starting(self):
+        # OwnTone sends artwork only when playback starts, so: add, set artwork, then play
+        self.ot.artwork = Path("/srv/wormhole/now playing.jpg")
+        self.ot.play_pipe("turntable")
+        self.assertEqual([r[:2] for r in self.fake.requests[-3:]], [
+            ("POST", "/api/queue/items/add?uris=library:track:7&clear=true"),
+            ("PUT", "/api/queue/items/42?artwork_url=file:/srv/wormhole/now%20playing.jpg"),
+            ("PUT", "/api/player/play")])
+
+    def test_play_pipe_plays_even_if_artwork_fails(self):
+        self.ot.artwork = Path("/srv/art.jpg")
+
+        def fail(item_id, image):
+            raise OwnToneError("PUT /api/queue/items/42: HTTP 400")
+        self.ot.set_artwork = fail
+        with self.assertLogs("wormhole.owntone", "WARNING"):
+            self.ot.play_pipe("turntable")
+        self.assertEqual(self.fake.requests[-1][:2], ("PUT", "/api/player/play"))
 
     def test_play_pipe_unknown_name(self):
         with self.assertRaisesRegex(OwnToneError, "no unique pipe named 'other'.*turntable"):

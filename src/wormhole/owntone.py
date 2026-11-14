@@ -2,10 +2,11 @@
 
 Endpoints and fields follow docs/json-api.md in the OwnTone repo (checked against 29.3):
 GET /api/outputs, PUT /api/outputs/set, PUT /api/outputs/{id}, GET /api/player,
-PUT /api/player/{play,pause,stop}.
+PUT /api/player/{play,pause,stop}, PUT /api/queue/items/{id} (artwork_url).
 """
 
 import json
+import logging
 import re
 import time
 import urllib.error
@@ -14,6 +15,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+log = logging.getLogger(__name__)
 
 
 class OwnToneError(Exception):
@@ -70,9 +74,10 @@ class Output:
 
 
 class OwnTone:
-    def __init__(self, base_url: str, timeout: float = 5.0):
+    def __init__(self, base_url: str, timeout: float = 5.0, artwork: Optional[Path] = None):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.artwork = artwork  # "now playing" image for the pipe, as OwnTone sees the path
 
     def _request(self, method: str, path: str, body: Optional[dict] = None) -> Any:
         data = json.dumps(body).encode() if body is not None else None
@@ -153,7 +158,26 @@ class OwnTone:
         soon as data flows.
         """
         uri = urllib.parse.quote(self.pipe_uri(name), safe=":")
-        self._request("POST", f"/api/queue/items/add?uris={uri}&clear=true&playback=start")
+        if self.artwork is None:
+            self._request("POST", f"/api/queue/items/add?uris={uri}&clear=true&playback=start")
+            return
+        # OwnTone sends metadata (with artwork) to the speakers once, when playback starts
+        # (player.c, event_play_start), so the artwork goes on the queue item before Play.
+        reply = self._request("POST", f"/api/queue/items/add?uris={uri}&clear=true") or {}
+        items = reply.get("items") or []
+        if items:
+            try:
+                self.set_artwork(items[0]["id"], self.artwork)
+            except OwnToneError as exc:  # no artwork is no reason to stay silent
+                log.warning("owntone: setting the artwork failed: %s", exc)
+        self.play()
+
+    def set_artwork(self, item_id: Any, image: Path) -> None:
+        """Artwork for a queue item. For pipes, OwnTone 29.3 reads a `file:` artwork_url itself
+        (artwork.c, source "pipe"; needs `artwork_individual = true`) and scales it down to
+        what the device asks for (600x600 for AirPlay)."""
+        url = urllib.parse.quote(f"file:{image}", safe=":/")
+        self._request("PUT", f"/api/queue/items/{item_id}?artwork_url={url}")
 
     def set_master_volume(self, volume: int) -> None:
         self._request("PUT", f"/api/player/volume?volume={int(volume)}")

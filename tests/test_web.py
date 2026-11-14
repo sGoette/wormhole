@@ -2,6 +2,7 @@
 
 import json
 import re
+import struct
 import tempfile
 import types
 import threading
@@ -12,7 +13,8 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from test_owntone import FakeOwnTone
-from wormhole import feed, web
+from wormhole import config, feed, web
+from wormhole.config import ROOT
 
 JS = web.FRONTEND / "js"
 
@@ -285,10 +287,26 @@ class WebTest(unittest.TestCase):
         page = urllib.request.urlopen(self.base + "/", timeout=3).read().decode()
         icons = [i["src"] for i in manifest["icons"]]
         icons += re.findall(r'rel="(?:apple-touch-icon|icon)"[^>]*href="([^"]+)"', page)
-        self.assertGreaterEqual(len(icons), 4)
-        for src in icons:
+        self.assertGreaterEqual(len(icons), 5)
+        signatures = {".png": b"\x89PNG\r\n\x1a\n", ".ico": b"\x00\x00\x01\x00",
+                      ".svg": b"<svg "}
+        # header icon: dark and light version
+        logos = re.findall(r'<(?:source srcset|img src)="(/icons/[^"]+\.svg)"', page)
+        self.assertEqual(len(logos), 2)
+        for src in icons + logos:
+            sig = signatures[src[src.rindex("."):]]
             with urllib.request.urlopen(self.base + src, timeout=3) as resp:
-                self.assertEqual(resp.read(8), b"\x89PNG\r\n\x1a\n", src)
+                self.assertEqual(resp.read(len(sig)), sig, src)
+
+    def test_now_playing_artwork_is_a_big_jpeg(self):
+        art = config.path(config.load(str(ROOT / "config" / "local.env")),
+                          "NOW_PLAYING_ARTWORK")
+        data = art.read_bytes()
+        self.assertEqual(data[:3], b"\xff\xd8\xff")
+        # JPEG SOF0 marker: height and width follow the precision byte
+        sof = data.index(b"\xff\xc0")
+        height, width = struct.unpack(">HH", data[sof + 5:sof + 9])
+        self.assertEqual((width, height), (2160, 2160))
 
     def test_owntone_down_still_serves_state(self):
         self.fake.close()

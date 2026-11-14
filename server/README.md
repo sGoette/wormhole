@@ -142,6 +142,12 @@ Debian itself: `apt-get update && apt-get upgrade` now and then (as root).
   `laudio: cannot find card '0'`.
 - **Speakers you don't use** (e.g. Macs with AirPlay Receiver): hide them in the web UI's
   settings → Speakers. Stored by name in `/var/lib/wormhole/settings.json`.
+- **"Now playing" artwork** (Apple TV and other AirPlay devices with a screen): wormhole sets
+  `NOW_PLAYING_ARTWORK` as the pipe's queue item `artwork_url` (`file:` path) before pressing
+  Play, because OwnTone sends metadata only when playback starts. OwnTone reads the file itself,
+  so it must be readable by user `owntone`. It only uses per-track artwork with
+  `artwork_individual = true` (in the template) and scales it to 600x600 for AirPlay. An image
+  next to the pipe is *not* picked up for pipes (only for files).
 - Pipe format: `pipe_sample_rate` 44100/48000/88200/96000, `pipe_bits_per_sample` 16/32,
   always stereo, host byte order. The pipe must be inside a library directory.
 

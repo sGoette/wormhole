@@ -15,6 +15,7 @@ The plan lives in [.claude/STRATEGY.md](.claude/STRATEGY.md); test results go in
 | `server/` | server | Debian VM: `install.sh`, systemd unit, settings example, setup guide |
 | `tools/` | Mac only | Test stand-ins: `fake_turntable/`, OwnTone build for the Mac, icon generator |
 | `tests/` | both | `unittest` tests (stdlib, no pytest needed) |
+| `design/` | — | Icon design explorations (not used by the app) |
 | `BACKLOG.md` | — | Features decided for later |
 | `results/` | Mac | Raw logs/captures referenced from `RESULTS.md` (git-ignored) |
 | `.claude/` | — | `CLAUDE.md` (structure + code style, loaded by Claude Code) and `STRATEGY.md` |

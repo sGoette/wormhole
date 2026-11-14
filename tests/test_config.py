@@ -29,6 +29,13 @@ class ConfigTest(unittest.TestCase):
     def test_missing_file_gives_empty_config(self):
         self.assertEqual(config.load("/nonexistent/x.env"), {})
 
+    def test_optional_path(self):
+        cfg = {"A": "rel/x.jpg", "B": "  ", "C": "/abs/y.jpg"}
+        self.assertEqual(config.optional_path(cfg, "A"), config.ROOT / "rel" / "x.jpg")
+        self.assertIsNone(config.optional_path(cfg, "B"))
+        self.assertIsNone(config.optional_path(cfg, "missing"))
+        self.assertEqual(config.optional_path(cfg, "C"), Path("/abs/y.jpg"))
+
     def test_shipped_env_files_parse(self):
         root = Path(__file__).resolve().parents[1]
         for name in ("config/local.env", "server/wormhole.env.example"):

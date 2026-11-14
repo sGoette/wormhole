@@ -30,5 +30,8 @@ The values above are reasonable defaults, to be compared once the device is here
 
 ## make_icons.py
 
-Draws the web UI's app icons (Home Screen, favicon) into `src/wormhole/frontend/icons/`.
-Standard library only. Re-run after changing the design: `python3 tools/make_icons.py`.
+Renders every icon from the two masters `src/wormhole/frontend/icons/wormhole-dark.svg` and
+`wormhole-light.svg` with macOS's `sips`: favicons (light/dark PNG + `favicon.ico`), the Home
+Screen and manifest icons, the UPnP renderer icons (48/120/256) and the 2160x2160
+`now-playing.jpg` that OwnTone shows on AirPlay screens. Re-run after changing a master:
+`python3 tools/make_icons.py`.

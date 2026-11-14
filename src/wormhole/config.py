@@ -46,3 +46,8 @@ def path(cfg: Dict[str, str], key: str) -> Path:
     """A path setting; relative values are relative to ROOT."""
     p = Path(require(cfg, key)).expanduser()
     return p if p.is_absolute() else ROOT / p
+
+
+def optional_path(cfg: Dict[str, str], key: str) -> Optional[Path]:
+    """Like path(), but None when the setting is missing or empty."""
+    return path(cfg, key) if cfg.get(key, "").strip() else None

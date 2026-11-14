@@ -12,17 +12,18 @@
   <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#161615" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="/manifest.webmanifest">
+  <!-- iOS has no dark/light variant for web app icons: the dark one is used -->
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-light-32.png"
+        media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-dark-32.png"
+        media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
   <link rel="stylesheet" href="/css/style.css">
   <script type="module" src="/js/main.js"></script>
 </head>
 <body>
 <header class="bar">
-  <div class="title">
-    <h1>Wormhole</h1>
-    <span id="now" class="now" hidden></span>
-  </div>
   <button id="open-settings" class="icon-btn" aria-label="Settings" title="Settings">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm7.43-2.53
@@ -35,6 +36,15 @@
         h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1
         c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65Z"/></svg>
   </button>
+  <div class="title">
+    <h1>Wormhole</h1>
+    <span id="now" class="now" hidden></span>
+  </div>
+  <!-- The icons' background is the page colour of each theme, so they sit flush. -->
+  <picture class="logo">
+    <source srcset="/icons/wormhole-dark.svg" media="(prefers-color-scheme: dark)">
+    <img src="/icons/wormhole-light.svg" alt="" width="56" height="56">
+  </picture>
 </header>
 
 <main>

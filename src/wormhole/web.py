@@ -47,7 +47,8 @@ class App:
     def __init__(self, cfg: Dict[str, str], feed_control: Optional[FeedControl] = None,
                  renderer_factory: Optional[Callable[..., Any]] = None):
         self.cfg = cfg
-        self.owntone = OwnTone(config.require(cfg, "OWNTONE_URL"), timeout=3)
+        self.owntone = OwnTone(config.require(cfg, "OWNTONE_URL"), timeout=3,
+                               artwork=config.optional_path(cfg, "NOW_PLAYING_ARTWORK"))
         self.feed = feed_control or FeedControl(cfg)
         self.owntone_log = config.path(cfg, "OWNTONE_LOG") if cfg.get("OWNTONE_LOG") else None
         self.settings = Settings(config.path(cfg, "SETTINGS_FILE")

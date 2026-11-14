@@ -37,7 +37,7 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 | `src/wormhole/settings.py` | Mac + server | Settings changed in the web UI (renderer name, hidden speakers), JSON in `SETTINGS_FILE`; wins over the env file. |
 | `src/wormhole/update.py` | Mac + server | git-based updates: check / fast-forward / rollback (`wormhole update`, web UI). |
 | `src/wormhole/web.py` | Mac + server | `wormhole web`: the JSON API (`routes()`), serves `frontend/`; starts/renames the renderer; re-execs itself after updates. |
-| `src/wormhole/frontend/` | browser | Web UI (Home Screen web app): `index.html`, `manifest.webmanifest`, `css/style.css`, `icons/`, `js/` (ES modules: `api`, `speakers`, `settings`, `software`, `main`). |
+| `src/wormhole/frontend/` | browser | Web UI (Home Screen web app): `index.html`, `manifest.webmanifest`, `favicon.ico`, `css/style.css`, `icons/` (masters `wormhole-dark.svg` / `wormhole-light.svg` plus the files rendered from them: favicons, Home Screen, renderer icons, `now-playing.jpg`), `js/` (ES modules: `api`, `speakers`, `settings`, `software`, `main`). |
 | `bin/wormhole` | Mac + server | POSIX sh launcher; sets `PYTHONPATH`; config `$WORMHOLE_ENV` → `/etc/wormhole/wormhole.env` → `config/local.env`. |
 | `config/local.env` | Mac | Mac settings. |
 | `config/owntone.conf.in` | both | OwnTone config template (HomePod User-Agent fix, pipe settings, local audio off). |
@@ -48,10 +48,11 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 | `tools/` | Mac | Test stand-ins. Never on the server. Usage in `tools/README.md`. |
 | `tools/fake_turntable/` | Mac | T2 W stand-in: `fake_turntable.py` (live MP3/FLAC stream + UPnP control) + `frontend/` (its web UI). |
 | `tools/media/` | Mac | Test audio for the fake turntable (audio files git-ignored). |
-| `tools/make_icons.py` | Mac | Draws the web UI's app icons into `src/wormhole/frontend/icons/` (re-run after a design change). |
+| `tools/make_icons.py` | Mac | Renders all icons and the AirPlay artwork from the two SVG masters with `sips` (re-run after changing a master). |
 | `tools/owntone-mac/` | Mac | Build (`build.sh`) and `run.sh` for OwnTone 29.3 on the Mac. |
 | `.local/` | Mac | Git-ignored build output + runtime data (`.local/owntone/`: binary, db, log, pipe). |
 | `tests/` | Mac | `unittest` tests, `test_*.py`. |
+| `design/explorations/` | Mac | Icon design rounds (SVG variants, `preview.html`, generator scripts). Not used by the app. |
 | `BACKLOG.md` | — | Features decided for later: why, agreed approach, what it touches. |
 | `RESULTS.md` | Mac | Test log. Git-ignored: it holds device names, IDs and LAN addresses. |
 | `results/` | Mac | Raw logs referenced from `RESULTS.md` (git-ignored). |

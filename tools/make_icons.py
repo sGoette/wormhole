@@ -1,73 +1,79 @@
 #!/usr/bin/env python3
-"""Draw the web UI's app icons (a record) as PNGs into src/wormhole/frontend/icons/.
+"""Render every icon and artwork file from the two SVG masters in src/wormhole/frontend/icons/.
 
-Standard library only. Run again after changing the design: python3 tools/make_icons.py
+Mac only: uses macOS's `sips` to rasterize the SVGs. The server just serves the results.
+Re-run after changing a master: python3 tools/make_icons.py
 """
 
-import math
 import struct
-import zlib
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parents[1] / "src" / "wormhole" / "frontend" / "icons"
-SIZES = {"apple-touch-icon.png": 180, "icon-192.png": 192, "icon-512.png": 512,
-         "favicon-32.png": 32}
+FRONTEND = Path(__file__).resolve().parents[1] / "src" / "wormhole" / "frontend"
+ICONS = FRONTEND / "icons"
+DARK, LIGHT = ICONS / "wormhole-dark.svg", ICONS / "wormhole-light.svg"
 
-BG_TOP, BG_BOTTOM = (251, 146, 60), (194, 65, 12)  # the UI's accent, light to dark
-VINYL, GROOVE, SHINE = (24, 24, 23), (44, 43, 41), (70, 68, 64)
-LABEL, HOLE = (246, 245, 242), (24, 24, 23)
-SAMPLES = 4  # per axis, for smooth edges
-
-
-def colour_at(x: float, y: float) -> tuple:
-    """Colour at (x, y) in a unit square; full-bleed so iOS can round the corners."""
-    dx, dy = x - 0.5, y - 0.5
-    r = math.hypot(dx, dy)
-    if r < 0.025:
-        return HOLE
-    if r < 0.13:
-        return LABEL
-    if r < 0.40:
-        # Grooves, plus a soft highlight on the upper left like light on vinyl.
-        groove = GROOVE if int(r * 140) % 3 == 0 else VINYL
-        angle = math.atan2(dy, dx)
-        shine = max(0.0, math.cos(2 * (angle + math.pi * 0.75))) ** 6 * 0.5
-        return tuple(round(g + (s - g) * shine) for g, s in zip(groove, SHINE))
-    return tuple(round(t + (b - t) * y) for t, b in zip(BG_TOP, BG_BOTTOM))
+# (master, output file in icons/, size in px). iOS has no theme-dependent Home Screen icon for
+# web apps, so the Home Screen, manifest, renderer and artwork files use the dark version.
+PNGS = [
+    (LIGHT, "favicon-light-32.png", 32),
+    (DARK, "favicon-dark-32.png", 32),
+    (DARK, "apple-touch-icon.png", 180),  # iOS rounds the corners itself
+    (DARK, "icon-192.png", 192),  # web manifest
+    (DARK, "icon-512.png", 512),
+    (DARK, "renderer-48.png", 48),  # UPnP <iconList> (renderer.py)
+    (DARK, "renderer-120.png", 120),
+    (DARK, "renderer-256.png", 256),
+]
+# "Now playing" artwork that OwnTone sends to AirPlay devices: square, full 4K height.
+# JPEG keeps it at a few hundred KB; OwnTone scales it down to what a device asks for.
+ARTWORK = (DARK, "now-playing.jpg", 2160, 92)
+FAVICON_ICO = (DARK, FRONTEND / "favicon.ico", (16, 32, 48))  # browsers ask for /favicon.ico
 
 
-def render(size: int) -> bytes:
-    rows = []
-    for py in range(size):
-        row = bytearray([0])  # PNG filter type: none
-        for px in range(size):
-            acc = [0, 0, 0]
-            for sy in range(SAMPLES):
-                for sx in range(SAMPLES):
-                    c = colour_at((px + (sx + 0.5) / SAMPLES) / size,
-                                  (py + (sy + 0.5) / SAMPLES) / size)
-                    acc = [a + v for a, v in zip(acc, c)]
-            row += bytes(round(a / SAMPLES ** 2) for a in acc)
-        rows.append(bytes(row))
-    return png(size, b"".join(rows))
+def sips(src: Path, out: Path, size: int, fmt: str = "png", quality: int = 0) -> None:
+    cmd = ["sips", "-s", "format", fmt]
+    if quality:
+        cmd += ["-s", "formatOptions", str(quality)]
+    cmd += ["-z", str(size), str(size), str(src), "--out", str(out)]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
 
 
-def png(size: int, raw: bytes) -> bytes:
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        body = kind + data
-        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
-    header = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)  # 8-bit RGB
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
-            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+def ico(pngs: list) -> bytes:
+    """An .ico holding PNG images (allowed since Windows Vista, read by all browsers)."""
+    header = struct.pack("<HHH", 0, 1, len(pngs))
+    offset = 6 + 16 * len(pngs)
+    entries, data = b"", b""
+    for size, png in pngs:
+        dim = 0 if size >= 256 else size  # 0 means 256
+        entries += struct.pack("<BBBBHHII", dim, dim, 0, 0, 1, 32, len(png), offset + len(data))
+        data += png
+    return header + entries + data
 
 
 def main() -> int:
-    OUT.mkdir(parents=True, exist_ok=True)
-    for name, size in SIZES.items():
-        (OUT / name).write_bytes(render(size))
-        print(f"{OUT / name} ({size}x{size})")
+    if sys.platform != "darwin":
+        print("make_icons.py needs macOS (sips)", file=sys.stderr)
+        return 1
+    for src, name, size in PNGS:
+        sips(src, ICONS / name, size)
+        print(f"icons/{name}  {size}x{size}")
+    src, name, size, quality = ARTWORK
+    sips(src, ICONS / name, size, "jpeg", quality)
+    print(f"icons/{name}  {size}x{size} JPEG")
+    src, out, sizes = FAVICON_ICO
+    with tempfile.TemporaryDirectory() as tmp:
+        pngs = []
+        for size in sizes:
+            png = Path(tmp) / f"{size}.png"
+            sips(src, png, size)
+            pngs.append((size, png.read_bytes()))
+    out.write_bytes(ico(pngs))
+    print(f"{out.name}  {', '.join(map(str, sizes))} px")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

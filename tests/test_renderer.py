@@ -1,5 +1,6 @@
 """UPnP renderer, driven by fake_turntable.py's own UPnP client (loopback, no SSDP, no ffmpeg)."""
 
+import struct
 import threading
 import unittest
 import urllib.request
@@ -88,6 +89,24 @@ class RendererTest(unittest.TestCase):
 
     def state(self):
         return ft.transport_info(self.r)["CurrentTransportState"]
+
+    def test_icons_listed_and_served(self):
+        base = f"http://127.0.0.1:{self.service.port}"
+        with urllib.request.urlopen(base + "/description.xml", timeout=3) as resp:
+            root = ET.fromstring(resp.read())
+        ns = {"d": "urn:schemas-upnp-org:device-1-0"}
+        icons = root.findall("d:device/d:iconList/d:icon", ns)
+        self.assertEqual(len(icons), 3)
+        for icon in icons:
+            size = int(icon.findtext("d:width", namespaces=ns))
+            self.assertEqual(icon.findtext("d:mimetype", namespaces=ns), "image/png")
+            with urllib.request.urlopen(base + icon.findtext("d:url", namespaces=ns),
+                                        timeout=3) as resp:
+                self.assertEqual(resp.headers["Content-Type"], "image/png")
+                png = resp.read()
+            self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
+            # IHDR: width and height right after the chunk type
+            self.assertEqual(struct.unpack(">II", png[16:24]), (size, size))
 
     def test_fake_turntable_play_pause_stop(self):
         self.assertEqual(self.state(), "NO_MEDIA_PRESENT")
