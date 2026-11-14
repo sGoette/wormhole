@@ -8,14 +8,15 @@ The plan lives in [.claude/STRATEGY.md](.claude/STRATEGY.md); test results go in
 
 | Path | Runs on | Purpose |
 |---|---|---|
-| `src/wormhole/` | Mac **and** server | Python package (stdlib only): renderer, feed, OwnTone client, web UI, updates |
+| `src/wormhole/` | Mac **and** server | Python package (stdlib only): renderer, feed, OwnTone client, web API, updates |
+| `src/wormhole/frontend/` | browser | Web UI: HTML, CSS, JavaScript modules, icons (no build step) |
 | `bin/wormhole` | Mac **and** server | Launcher: sets `PYTHONPATH`, so no install step is needed |
 | `config/` | both | `local.env` = Mac settings; `owntone.conf.in` = OwnTone config template |
 | `server/` | server | Debian VM: `install.sh`, systemd unit, settings example, setup guide |
-| `tools/` | Mac only | Test stand-ins: `fake_turntable.py`, OwnTone build for the Mac |
-| `scripts/` | Mac | Helpers, e.g. Phase 0 prerequisite check |
+| `tools/` | Mac only | Test stand-ins: `fake_turntable/`, OwnTone build for the Mac, icon generator |
 | `tests/` | both | `unittest` tests (stdlib, no pytest needed) |
-| `results/logs/` | Mac | Raw logs/captures referenced from `RESULTS.md` |
+| `BACKLOG.md` | — | Features decided for later |
+| `results/` | Mac | Raw logs/captures referenced from `RESULTS.md` (git-ignored) |
 | `.claude/` | — | `CLAUDE.md` (structure + code style, loaded by Claude Code) and `STRATEGY.md` |
 
 Rule of thumb: anything that runs on the server goes in `src/wormhole/` and reads its settings
@@ -25,7 +26,6 @@ never hard-code hosts, ports or paths. The same code is tested on the Mac first.
 ## On the Mac
 
 ```bash
-make check            # Phase 0: python, ffmpeg, local network sanity
 make test             # unit tests
 make turntable        # fake turntable (stands in for the Pro-Ject T2 W)
 make owntone-build    # once: OwnTone into .local/owntone

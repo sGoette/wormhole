@@ -1,4 +1,4 @@
-"""Minimal UPnP MediaRenderer: the turntable (or tools/fake_turntable.py) pushes its stream here.
+"""Minimal UPnP MediaRenderer: the turntable (or the fake turntable) pushes its stream here.
 
 SetAVTransportURI + Play -> the stream URL goes to the shared PCM feed -> OwnTone's pipe.
 Pause/Stop stop the feed (a live stream can't be paused); Play reconnects to the live stream.
@@ -6,10 +6,11 @@ Pause/Stop stop the feed (a live stream can't be paused); Play reconnects to the
 What control points rely on is implemented: SSDP discovery and announcements, the device
 description, AVTransport, RenderingControl (volume -> OwnTone master volume),
 ConnectionManager (formats we accept) and basic GENA eventing (LastChange).
-Standard library only; runs on the Mac and on the NAS.
+Standard library only; runs on the Mac and on the server.
 """
 
 import logging
+import platform
 import random
 import socket
 import struct
@@ -19,18 +20,19 @@ import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
 from email.utils import formatdate
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Callable, Dict, List, Optional, Tuple
+from http.server import BaseHTTPRequestHandler
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape, quoteattr
 
 from . import __version__
+from .httpserver import QuietHTTPServer, worth_logging
 from .owntone import OwnTone, OwnToneError
 
 log = logging.getLogger(__name__)
 
 SSDP_ADDR, SSDP_PORT = "239.255.255.250", 1900
 MAX_AGE = 1800
-SERVER = f"FreeBSD/1 UPnP/1.0 wormhole/{__version__}"
+SERVER = f"{platform.system()}/{platform.release()} UPnP/1.0 wormhole/{__version__}"
 
 DEVICE_TYPE = "urn:schemas-upnp-org:device:MediaRenderer:1"
 AVT = "urn:schemas-upnp-org:service:AVTransport:1"
@@ -46,6 +48,13 @@ SINK_PROTOCOL_INFO = ",".join(f"http-get:*:{m}:*" for m in SINK_MIME)
 
 NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
 COUNTER_NOT_IMPLEMENTED = "2147483647"  # AVTransport spec value for unsupported counters
+
+
+def udn_for(name: str) -> str:
+    """Stable per host + name: control points recognise us after a restart, and a new name
+    is a new device for them (so none keeps showing the old name from its cache)."""
+    seed = f"wormhole-renderer.{socket.gethostname()}.{name}"
+    return "uuid:" + str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
 
 
 def local_ip_for(host: str) -> str:
@@ -301,9 +310,7 @@ class Renderer:
                  udn: Optional[str] = None, pipe_name: str = "turntable"):
         self.name = name
         self.pipe_name = pipe_name  # file name of PCM_PIPE, to find it in OwnTone's library
-        # Stable per host + name, so control points recognise us after a restart.
-        seed = f"wormhole-renderer.{socket.gethostname()}.{name}"
-        self.udn = udn or "uuid:" + str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
+        self.udn = udn or udn_for(name)
         self.feed = feed_control
         self.owntone = owntone
         self.lock = threading.RLock()
@@ -580,6 +587,10 @@ class Subscriptions:
         with self.lock:
             return self.subs.pop(sid, None) is not None
 
+    def clear(self) -> None:
+        with self.lock:
+            self.subs.clear()
+
     def notify(self, service: str) -> None:
         with self.lock:
             now = time.time()
@@ -613,20 +624,6 @@ class Subscriptions:
 
 # --------------------------------------------------------------------------- HTTP
 
-class QuietHTTPServer(ThreadingHTTPServer):
-    """Clients on the LAN (TVs, phones) drop connections all the time; log that, no traceback."""
-
-    daemon_threads = True
-
-    def handle_error(self, request, client_address) -> None:
-        import sys
-        exc = sys.exc_info()[1]
-        if isinstance(exc, (ConnectionError, TimeoutError)):
-            log.debug("connection from %s dropped: %s", client_address[0], exc)
-        else:
-            super().handle_error(request, client_address)
-
-
 def make_handler(renderer: Renderer, subs: Subscriptions) -> type:
     paths = {f"/{sid}/{kind}": (sid, kind) for sid in SERVICES
              for kind in ("scpd.xml", "control", "event")}
@@ -637,6 +634,10 @@ def make_handler(renderer: Renderer, subs: Subscriptions) -> type:
 
         def log_message(self, fmt: str, *args) -> None:
             log.debug("renderer http %s %s", self.address_string(), fmt % args)
+
+        def log_request(self, code: Any = "-", size: Any = "-") -> None:
+            if worth_logging(code):
+                super().log_request(code, size)
 
         def do_GET(self) -> None:
             path = self.path.split("?")[0]
@@ -800,12 +801,24 @@ class SSDP:
             except OSError as exc:
                 log.debug("ssdp notify failed: %s", exc)
 
-    def _announce(self) -> None:
-        # Three quick rounds at start (UDP may drop), then well within max-age.
+    def change_udn(self, udn: str) -> None:
+        """Say goodbye as the old device, then announce the new one."""
+        if self.sock is not None:
+            self._notify_all(alive=False)
+        self.udn = udn
+        if self.sock is not None:
+            threading.Thread(target=self._burst, name="ssdp-notify", daemon=True).start()
+
+    def _burst(self) -> None:
+        # Three quick rounds (UDP may drop).
         for delay in (0.1, 1.0, 2.0):
             if self.stopping.wait(delay):
                 return
             self._notify_all(alive=True)
+
+    def _announce(self) -> None:
+        self._burst()
+        # Then well within max-age.
         while not self.stopping.wait(MAX_AGE / 3):
             self._notify_all(alive=True)
 
@@ -859,6 +872,18 @@ class RendererService:
         threading.Thread(target=self._watch, name="renderer-watch", daemon=True).start()
         log.info("renderer '%s' (%s) on port %d", self.renderer.name, self.renderer.udn,
                  self.port)
+
+    def rename(self, name: str) -> None:
+        """New friendly name, live: control points see the old device leave and a new one
+        (new UDN) appear. Playback keeps running; subscriptions belonged to the old device."""
+        old = self.renderer.name
+        with self.renderer.lock:
+            self.renderer.name = name
+            self.renderer.udn = udn_for(name)
+        self.subs.clear()
+        if self.ssdp is not None:
+            self.ssdp.change_udn(self.renderer.udn)
+        log.info("renderer renamed: '%s' -> '%s' (%s)", old, name, self.renderer.udn)
 
     def stop(self) -> None:
         self._stopping.set()

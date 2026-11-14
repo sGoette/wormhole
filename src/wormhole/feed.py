@@ -10,7 +10,7 @@ Why start OwnTone only on the first data: OwnTone's start buffer is 2250 ms
 OwnTone earlier left the HomePods silent while OwnTone itself played (2026-11-13).
 
 PCM is little-endian (s16le / s32le): OwnTone reads host byte order, and both the Mac (arm64)
-and the NAS (amd64) are little-endian.
+and the server (amd64) are little-endian.
 """
 
 import errno
@@ -24,7 +24,9 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Callable, IO, List, Optional
+from typing import Callable, Dict, IO, List, Optional
+
+from . import config
 
 log = logging.getLogger(__name__)
 
@@ -208,3 +210,75 @@ class Feeder:
             text = line.decode("utf-8", "replace").strip()
             if text:
                 into.append(text)
+
+
+class FeedControl:
+    """Runs one Feeder in a background thread (web UI and renderer share it)."""
+
+    def __init__(self, cfg: Dict[str, str], factory: Callable[..., Feeder] = Feeder):
+        self.cfg, self.factory = cfg, factory
+        self.lock = threading.Lock()
+        self.feeder: Optional[Feeder] = None
+        self.thread: Optional[threading.Thread] = None
+        self.source = ""
+        self.origin = ""  # who started it: "web" or "upnp"
+
+    def resolve(self, source: str) -> str:
+        """Allow 'tone', http(s) URLs and existing files; relative paths are from ROOT."""
+        source = source.strip()
+        if source == TONE or source.startswith(("http://", "https://")):
+            return source
+        path = Path(source).expanduser()
+        path = path if path.is_absolute() else config.ROOT / path
+        if not path.is_file():
+            raise ValueError(f"not 'tone', an http(s) URL or an existing file: {source}")
+        return str(path)
+
+    def start(self, source: str, origin: str = "web",
+              on_first_data: Optional[Callable[[], None]] = None) -> None:
+        resolved = self.resolve(source)
+        self.stop()
+        feeder = self.factory(
+            source=resolved,
+            pipe=config.path(self.cfg, "PCM_PIPE"),
+            rate=int(self.cfg.get("PIPE_SAMPLE_RATE", "44100")),
+            bits=int(self.cfg.get("PIPE_BITS", "16")),
+            on_first_data=on_first_data,
+        )
+        thread = threading.Thread(target=feeder.run, name="feed", daemon=True)
+        with self.lock:
+            self.feeder, self.thread = feeder, thread
+            self.source, self.origin = source.strip(), origin
+        thread.start()
+
+    def owned_by(self, origin: str) -> bool:
+        """True while a feed started by `origin` is running."""
+        state = self.state()
+        return state["running"] and state["origin"] == origin
+
+    def stop(self, origin: Optional[str] = None) -> None:
+        """Stop the feed; with `origin`, only if that origin started it."""
+        with self.lock:
+            feeder, thread = self.feeder, self.thread
+            if origin is not None and self.origin != origin:
+                return
+        if feeder is not None:
+            feeder.stop()
+        if thread is not None:
+            thread.join(timeout=5)
+
+    def state(self) -> dict:
+        with self.lock:
+            feeder, thread, source, origin = self.feeder, self.thread, self.source, self.origin
+        running = bool(thread and thread.is_alive() and feeder and not feeder.stopping)
+        return {
+            "running": running,
+            "source": source,
+            "origin": origin,
+            "seconds": int(time.time() - feeder.started_at)
+            if running and feeder and feeder.started_at else 0,
+            "restarts": feeder.restarts if feeder else 0,
+            "last_error": feeder.last_error if feeder else "",
+            "bytes": feeder.bytes_written if feeder else 0,
+            "flowing": bool(running and feeder.flowing()),
+        }

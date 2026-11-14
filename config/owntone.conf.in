@@ -33,3 +33,11 @@ library {
 	pipe_sample_rate = @PIPE_SAMPLE_RATE@
 	pipe_bits_per_sample = @PIPE_BITS@
 }
+
+# OwnTone's own sound output ("Computer", ALSA/PulseAudio). The server VM has no sound card,
+# so the speaker could never be switched on ("laudio: cannot find card '0'"). Only AirPlay
+# speakers are used. Verified in OwnTone 29.3 src/outputs/alsa.c and pulse.c: any type other
+# than "alsa" / "pulseaudio" keeps them from starting.
+audio {
+	type = "disabled"
+}

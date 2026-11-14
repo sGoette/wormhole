@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-# Repo root on the Mac, release dir on the NAS (src/wormhole/config.py -> ../../).
+# The repo checkout, on the Mac and the server (src/wormhole/config.py -> ../../).
 ROOT = Path(__file__).resolve().parents[2]
 
 

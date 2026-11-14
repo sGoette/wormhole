@@ -6,11 +6,11 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from test_fake_turntable import ft  # tools/fake_turntable.py, loaded as a module
+from test_fake_turntable import ft  # tools/fake_turntable/, loaded as a module
 from test_owntone import FakeOwnTone
 from test_web import FakeFeeder
 from wormhole import renderer as rd
-from wormhole.web import FeedControl
+from wormhole.feed import FeedControl
 
 URI = "http://192.0.2.10:8765/live/tone/stream.mp3"
 
@@ -113,6 +113,23 @@ class RendererTest(unittest.TestCase):
         ft.stop(self.r)
         self.assertEqual(self.state(), "STOPPED")
         self.assertTrue(FakeFeeder.instances[-1].stopping)
+
+    def test_rename_is_live_and_a_new_device(self):
+        old_udn = self.service.renderer.udn
+        ft.set_uri(self.r, URI, "")
+        ft.play(self.r)
+        self.service.rename("Living Room Turntable")
+        renamed = ft.describe(f"http://127.0.0.1:{self.service.port}/description.xml",
+                              "127.0.0.1")
+        self.assertEqual(renamed.name, "Living Room Turntable")
+        self.assertNotEqual(renamed.key, old_udn)  # control points see a new device
+        self.assertEqual(renamed.key, rd.udn_for("Living Room Turntable"))
+        self.assertEqual(self.state(), "PLAYING")  # playback keeps running
+        self.assertFalse(FakeFeeder.instances[-1].stopping)
+
+    def test_udn_is_stable_per_name(self):
+        self.assertEqual(rd.udn_for("A"), rd.udn_for("A"))
+        self.assertNotEqual(rd.udn_for("A"), rd.udn_for("B"))
 
     def test_web_ui_taking_the_feed_stops_renderer(self):
         ft.set_uri(self.r, URI, "")

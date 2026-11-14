@@ -1,13 +1,15 @@
-"""Tests for tools/fake_turntable.py. Loopback only: no LAN, no ffmpeg, no real renderer."""
+"""Tests for tools/fake_turntable/. Loopback only: no LAN, no ffmpeg, no real renderer."""
 
 import importlib.util
 import threading
 import unittest
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import List, Tuple
 
-TOOL = Path(__file__).resolve().parents[1] / "tools" / "fake_turntable.py"
+TOOL = Path(__file__).resolve().parents[1] / "tools" / "fake_turntable" / "fake_turntable.py"
 spec = importlib.util.spec_from_file_location("fake_turntable", TOOL)
 ft = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ft)
@@ -207,6 +209,35 @@ class ControlTest(unittest.TestCase):
         with self.assertRaises(LookupError) as ctx:
             self.tt.find("Bedroom")
         self.assertIn("Kitchen & Bar (127.0.0.1)", str(ctx.exception))
+
+
+class WebUITest(unittest.TestCase):
+    def setUp(self):
+        tt = ft.Turntable(ft.Sources(Path("/nonexistent")), 8765, "320k", use_didl=True)
+        self.server = ft.make_server(tt, 0)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+
+    def get(self, path):
+        try:
+            with urllib.request.urlopen(self.base + path, timeout=3) as resp:
+                return resp.status, resp.headers["Content-Type"], resp.read()
+        except urllib.error.HTTPError as exc:
+            with exc:
+                return exc.code, exc.headers["Content-Type"], exc.read()
+
+    def test_frontend_files_served(self):
+        status, ctype, body = self.get("/")
+        self.assertEqual((status, ctype), (200, "text/html; charset=utf-8"))
+        self.assertIn(b"<title>Fake Turntable</title>", body)
+        self.assertEqual(self.get("/app.js")[:2], (200, "text/javascript; charset=utf-8"))
+        self.assertEqual(self.get("/style.css")[:2], (200, "text/css; charset=utf-8"))
+
+    def test_nothing_outside_the_frontend(self):
+        self.assertEqual(self.get("/../fake_turntable.py")[0], 404)
+        self.assertEqual(self.get("/%2e%2e/fake_turntable.py")[0], 404)
+        self.assertEqual(self.get("/missing.js")[0], 404)
 
 
 if __name__ == "__main__":

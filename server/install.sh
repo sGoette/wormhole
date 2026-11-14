@@ -64,7 +64,17 @@ chown -R wormhole:wormhole "$REPO"
 say "Config $ENV_FILE"
 install -d -m 0755 /etc/wormhole
 if [ -f "$ENV_FILE" ]; then
-    echo "kept existing file"
+    # Keys added by newer versions get the example's value; existing values stay untouched.
+    added=""
+    while IFS= read -r line; do
+        case "$line" in ''|'#'*) continue ;; esac
+        key=${line%%=*}
+        if ! grep -q "^$key=" "$ENV_FILE"; then
+            printf '%s\n' "$line" >> "$ENV_FILE"
+            added="$added $key"
+        fi
+    done < "$REPO/server/wormhole.env.example"
+    echo "kept existing file${added:+; added:$added}"
 else
     install -m 0644 "$REPO/server/wormhole.env.example" "$ENV_FILE"
     echo "created from server/wormhole.env.example"

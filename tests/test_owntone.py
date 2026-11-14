@@ -43,6 +43,9 @@ class FakeOwnTone:
                     return self._reply(200, OUTPUTS)
                 if self.path == "/api/outputs/444":
                     return self._reply(200, dict(PIN_DEVICE, needs_auth_key=not outer.paired))
+                for out in OUTPUTS["outputs"]:
+                    if self.path == f"/api/outputs/{out['id']}":
+                        return self._reply(200, out)
                 if self.path == "/api/player":
                     return self._reply(200, {"state": "play", "volume": 40})
                 if self.path.startswith("/api/search?type=tracks&expression=data_kind%20is"):

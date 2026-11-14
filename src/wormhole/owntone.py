@@ -134,7 +134,7 @@ class OwnTone:
 
     def pipe_uri(self, name: str) -> str:
         """Library URI of the named pipe called `name` (file name, not full path: the path
-        OwnTone sees can differ from ours, e.g. inside a jail)."""
+        OwnTone sees can differ from ours, e.g. on another host)."""
         expr = urllib.parse.quote("data_kind is pipe")
         items = self._request("GET", f"/api/search?type=tracks&expression={expr}")
         pipes = items.get("tracks", {}).get("items", [])

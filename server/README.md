@@ -89,16 +89,21 @@ git clone https://github.com/sGoette/wormhole.git /opt/wormhole
 
 It ends with the web UI address. Open it on the Mac or iPhone and:
 - switch on the HomePods (an Apple TV asks for the PIN it shows; press **Pair**)
-- in the Pro-Ject Control app (or Bubble UPnP, or `tools/fake_turntable.py` on the Mac),
-  choose the speaker **"Wormhole"**
+- in the Pro-Ject Control app (or Bubble UPnP, or `make turntable` on the Mac),
+  choose the speaker **"Wormhole"**. To rename it: web UI → settings (gear icon) → Renderer.
+  The app then lists it as a new device; select it once more.
+
+On the iPhone, Safari → Share → **Add to Home Screen** makes the web UI an app.
 
 ## Updates
 
-Web UI → **Software** → *Check for updates* → *Update now*. wormhole pulls the newest commit
-of `main` from GitHub and restarts itself; *Roll back* returns to the previous version.
+Web UI → settings (gear icon) → **Software** → *Check for updates* → *Update now*. wormhole
+pulls the newest commit of `main` from GitHub and restarts itself; *Roll back* returns to the
+previous version.
 
 If the update touches `server/` or `config/owntone.conf.in`, the panel says so. Then run
-once, in the VM console as root: `/opt/wormhole/server/install.sh`
+once, in the VM console as root: `/opt/wormhole/server/install.sh`. It also adds settings that
+are new in `wormhole.env.example` to `/etc/wormhole/wormhole.env`, keeping your values.
 
 Console alternative (git refuses to run as root on a checkout owned by another user):
 ```sh
@@ -110,8 +115,10 @@ Debian itself: `apt-get update && apt-get upgrade` now and then (as root).
 
 ## Settings, logs, troubleshooting
 
-- Settings: `/etc/wormhole/wormhole.env`, then `systemctl restart wormhole`. Pipe or OwnTone
-  keys (`PCM_PIPE`, `PIPE_*`, `OWNTONE_URL`, `LOG_LEVEL`): re-run `install.sh` instead.
+- Settings: `/etc/wormhole/wormhole.env`, then `systemctl restart wormhole`. The renderer name
+  set in the web UI is kept in `/var/lib/wormhole/settings.json` and wins over
+  `RENDERER_NAME`. Pipe or OwnTone keys (`PCM_PIPE`, `PIPE_*`, `OWNTONE_URL`, `LOG_LEVEL`):
+  re-run `install.sh` instead.
 - Logs: `journalctl -u wormhole -f` · OwnTone: `/var/log/owntone.log`
 - Status: `systemctl status owntone wormhole` · `/opt/wormhole/bin/wormhole info`
 - "Wormhole" not visible in the turntable app, or no HomePods listed: check that the VM's NIC
@@ -130,6 +137,11 @@ Debian itself: `apt-get update && apt-get upgrade` now and then (as root).
   longer than OwnTone's 2250 ms start buffer).
 - **PIN devices** (Apple TV): switch on → PIN shown → send the PIN alone → switch on again
   (OwnTone issue #1967). The web UI does this with its *Pair* button.
+- **Local audio output is off** (`audio { type = "disabled" }`): the VM has no sound card, and
+  OwnTone otherwise lists a speaker "Computer" (ALSA) that fails with
+  `laudio: cannot find card '0'`.
+- **Speakers you don't use** (e.g. Macs with AirPlay Receiver): hide them in the web UI's
+  settings → Speakers. Stored by name in `/var/lib/wormhole/settings.json`.
 - Pipe format: `pipe_sample_rate` 44100/48000/88200/96000, `pipe_bits_per_sample` 16/32,
   always stereo, host byte order. The pipe must be inside a library directory.
 

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fake Turntable</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body><main>
+<h1>Fake Turntable</h1>
+<p class="sub">Stand-in for the Pro-Ject T2 W: live stream &rarr; UPnP renderer</p>
+
+<div class="card">
+  <label for="renderer">Speaker (UPnP renderer)</label>
+  <div class="row">
+    <select id="renderer"><option value="">Searching&hellip;</option></select>
+    <button id="refresh" title="Search again">Search</button>
+  </div>
+  <label for="source">Source</label>
+  <div class="row">
+    <select id="source"></select>
+    <select id="format"></select>
+  </div>
+  <div class="row controls">
+    <button id="play">Play</button><button id="pause">Pause</button>
+    <button id="stop">Stop</button>
+  </div>
+  <p id="msg"></p>
+</div>
+
+<div class="card">
+  <dl class="status">
+    <dt>Speaker</dt><dd id="s-renderer">&ndash;</dd>
+    <dt>State</dt><dd><span id="s-state" class="state">&ndash;</span></dd>
+    <dt>Stream</dt><dd id="s-url">&ndash;</dd>
+    <dt>Pulling</dt><dd id="s-conns">no renderer connected to the stream</dd>
+  </dl>
+</div>
+
+<div class="card"><label>Events</label><pre id="events"></pre></div>
+</main>
+</body>
+</html>

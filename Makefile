@@ -1,13 +1,10 @@
 PY      ?= python3
 ARGS    ?= info
 
-.PHONY: help check test run turntable owntone-build owntone-run web feed
+.PHONY: help test run turntable owntone-build owntone-run web feed
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
-
-check: ## Phase 0 prerequisite check on the Mac
-	@scripts/check-prereqs.sh
 
 test: ## Run unit tests locally
 	PYTHONPATH=src $(PY) -m unittest discover -s tests -v
@@ -15,8 +12,8 @@ test: ## Run unit tests locally
 run: ## Run wormhole locally (make run ARGS="info")
 	WORMHOLE_ENV=config/local.env bin/wormhole $(ARGS)
 
-turntable: ## Fake turntable web UI on :8765
-	$(PY) tools/fake_turntable.py
+turntable: ## Fake turntable web UI on :8765 (options: TT_ARGS="--list")
+	$(PY) tools/fake_turntable/fake_turntable.py $(TT_ARGS)
 
 owntone-build: ## Build OwnTone into .local/owntone (Mac, once)
 	tools/owntone-mac/build.sh

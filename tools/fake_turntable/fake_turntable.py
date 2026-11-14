@@ -3,14 +3,14 @@
 
 Streams an audio file (or a 440 Hz test tone) as a live, non-seekable MP3 or FLAC stream via
 ffmpeg and tells a UPnP renderer to play it (AVTransport SetAVTransportURI + Play). Includes a
-small web UI to pick the speaker and press play / pause / stop.
+small web UI (frontend/) to pick the speaker and press play / pause / stop.
 
 Standard library only, Python 3.9+. Needs ffmpeg on PATH.
 
-  python3 tools/fake_turntable.py                         # web UI on http://localhost:8765
-  python3 tools/fake_turntable.py --list                  # discover renderers
-  python3 tools/fake_turntable.py --renderer NAME [--source FILE|tone] [--format mp3|flac]
-  python3 tools/fake_turntable.py --renderer NAME --stop
+  make turntable                     # web UI on http://localhost:8765
+  make turntable TT_ARGS="--list"    # discover renderers
+  make turntable TT_ARGS='--renderer NAME [--source FILE|tone] [--format mp3|flac]'
+  make turntable TT_ARGS='--renderer NAME --stop'
 
 Audio files: put them in tools/media/ (or pass a path with --source).
 """
@@ -40,7 +40,11 @@ from xml.sax.saxutils import escape
 log = logging.getLogger("fake_turntable")
 
 DEFAULT_PORT = int(os.environ.get("STREAM_PORT", "8765"))
-DEFAULT_MEDIA_DIR = Path(__file__).resolve().parent / "media"
+HERE = Path(__file__).resolve().parent
+DEFAULT_MEDIA_DIR = HERE.parent / "media"  # tools/media
+FRONTEND = HERE / "frontend"
+CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+                 ".js": "text/javascript; charset=utf-8"}
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".aac", ".ogg", ".opus"}
 TONE = "tone"
 
@@ -523,9 +527,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
-        if path == "/":
-            self._send(200, "text/html; charset=utf-8", PAGE.encode())
-        elif path == "/api/state":
+        if path == "/api/state":
             self._json(self.turntable.snapshot())
         elif path == "/api/renderers":
             if "refresh" in self.path or not self.turntable.renderers:
@@ -535,7 +537,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/live/"):
             self._stream(path, head=False)
         else:
-            self._send(404, "text/plain", b"not found\n")
+            self._static(path)
 
     def do_HEAD(self) -> None:
         path = urlsplit(self.path).path
@@ -593,6 +595,15 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.turntable.close_stream(cid, reason)
 
+    def _static(self, path: str) -> None:
+        """The web UI's files from frontend/; nothing outside that directory."""
+        name = "index.html" if path == "/" else unquote(path).lstrip("/")
+        file = (FRONTEND / name).resolve()
+        if FRONTEND not in file.parents or not file.is_file():
+            return self._send(404, "text/plain", b"not found\n")
+        ctype = CONTENT_TYPES.get(file.suffix, "application/octet-stream")
+        self._send(200, ctype, file.read_bytes())
+
     def _json(self, data, status: int = 200) -> None:
         self._send(status, "application/json", json.dumps(data).encode())
 
@@ -615,174 +626,6 @@ def make_server(turntable: Turntable, port: int) -> ThreadingHTTPServer:
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
-
-
-# --------------------------------------------------------------------------- web UI
-
-PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fake Turntable</title>
-<style>
-:root { --bg:#f6f5f2; --card:#fff; --fg:#1d1d1f; --muted:#6e6e73; --line:#dedcd6;
-        --accent:#c2410c; --ok:#15803d; --err:#b91c1c; color-scheme: light; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg:#161615; --card:#21201e; --fg:#f2f1ee; --muted:#a19f99; --line:#3a3936;
-          --accent:#fb923c; --ok:#4ade80; --err:#f87171; color-scheme: dark; } }
-* { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--fg);
-       font:15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-main { max-width:640px; margin:0 auto; padding:24px 16px 48px; }
-h1 { font-size:20px; margin:0 0 4px; } .sub { color:var(--muted); margin:0 0 20px; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:12px;
-        padding:16px; margin-bottom:14px; }
-label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.05em;
-        color:var(--muted); margin:0 0 6px; }
-.row { display:flex; gap:8px; margin-bottom:14px; } .row:last-child { margin-bottom:0; }
-select, button { font:inherit; color:inherit; border:1px solid var(--line);
-                 border-radius:8px; padding:10px 12px; background:var(--bg); }
-select { flex:1; min-width:0; }
-button { cursor:pointer; } button:disabled { opacity:.5; cursor:default; }
-.controls button { flex:1; font-weight:600; padding:14px; }
-#play { background:var(--accent); border-color:var(--accent); color:#fff; }
-.status { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:14px; }
-.status dt { color:var(--muted); }
-.status dd { margin:0; overflow-wrap:anywhere; white-space:pre-line; }
-.state { font-weight:700; } .PLAYING { color:var(--ok); } .err { color:var(--err); }
-#events { font:12px/1.5 ui-monospace, Menlo, monospace; max-height:240px; overflow:auto;
-          margin:0; white-space:pre-wrap; }
-#events .ERROR { color:var(--err); } #events .WARNING { color:var(--accent); }
-#msg { min-height:1.4em; margin:10px 0 0; font-size:14px; }
-</style></head><body><main>
-<h1>Fake Turntable</h1>
-<p class="sub">Stand-in for the Pro-Ject T2 W: live stream &rarr; UPnP renderer</p>
-
-<div class="card">
-  <label for="renderer">Speaker (UPnP renderer)</label>
-  <div class="row">
-    <select id="renderer"><option value="">Searching&hellip;</option></select>
-    <button id="refresh" title="Search again">Search</button>
-  </div>
-  <label for="source">Source</label>
-  <div class="row">
-    <select id="source"></select>
-    <select id="format" style="flex:0 0 auto"></select>
-  </div>
-  <div class="row controls">
-    <button id="play">Play</button><button id="pause">Pause</button>
-    <button id="stop">Stop</button>
-  </div>
-  <p id="msg"></p>
-</div>
-
-<div class="card">
-  <dl class="status">
-    <dt>Speaker</dt><dd id="s-renderer">&ndash;</dd>
-    <dt>State</dt><dd><span id="s-state" class="state">&ndash;</span></dd>
-    <dt>Stream</dt><dd id="s-url">&ndash;</dd>
-    <dt>Pulling</dt><dd id="s-conns">no renderer connected to the stream</dd>
-  </dl>
-</div>
-
-<div class="card"><label>Events</label><pre id="events"></pre></div>
-</main>
-<script>
-const $ = id => document.getElementById(id);
-let renderers = [], sourcesKey = "";
-
-async function api(path, body) {
-  const opts = body === undefined ? {} : {method: "POST", body: JSON.stringify(body)};
-  const res = await fetch(path, opts);
-  return res.json();
-}
-
-async function loadRenderers(refresh) {
-  $("refresh").disabled = true;
-  $("renderer").innerHTML = "<option value=''>Searching&hellip;</option>";
-  try { renderers = await api("/api/renderers" + (refresh ? "?refresh=1" : "")); }
-  finally { $("refresh").disabled = false; }
-  const playable = renderers.filter(r => r.can_play);
-  const sel = $("renderer"), prev = localStorage.getItem("renderer");
-  sel.innerHTML = "";
-  if (!playable.length) sel.innerHTML = "<option value=''>No UPnP renderer found</option>";
-  for (const r of playable) {
-    const o = new Option(`${r.name} (${r.host})` + (r.model ? ` - ${r.model}` : ""), r.key);
-    o.selected = r.key === prev; sel.add(o);
-  }
-}
-
-function fillSources(state) {
-  const key = state.sources.join("|");
-  if (key === sourcesKey) return;
-  sourcesKey = key;
-  const sel = $("source"), prev = localStorage.getItem("source") || state.source;
-  sel.innerHTML = "";
-  for (const s of state.sources)
-    sel.add(new Option(s === "tone" ? "Test tone (440 Hz)" : s, s, false, s === prev));
-  const fsel = $("format");
-  if (!fsel.options.length) {
-    for (const f of state.formats) fsel.add(new Option(f.toUpperCase(), f));
-    fsel.value = localStorage.getItem("format") || state.format;
-  }
-}
-
-function render(state) {
-  fillSources(state);
-  const t = state.transport, a = state.active;
-  $("s-renderer").textContent = a ? `${a.name} (${a.host})` : "-";
-  const st = $("s-state");
-  if (t && t.error) { st.textContent = t.error; st.className = "state err"; }
-  else if (t) {
-    st.textContent = t.CurrentTransportState || "?";
-    st.className = "state " + (t.CurrentTransportState || "");
-  } else { st.textContent = "-"; st.className = "state"; }
-  $("s-url").textContent = state.stream_url || "-";
-  $("s-conns").textContent = state.connections.length
-    ? state.connections.map(c => `#${c.id} ${c.client}: ${c.format}, ` +
-        `${Math.round(Date.now() / 1000 - c.started)}s, ${(c.bytes / 1e6).toFixed(1)} MB`
-      ).join("\\n")
-    : "no renderer connected to the stream";
-  const ev = $("events");
-  ev.innerHTML = "";
-  for (const e of state.events.slice().reverse()) {
-    const line = document.createElement("div");
-    line.className = e.level; line.textContent = `${e.t}  ${e.msg}`; ev.appendChild(line);
-  }
-}
-
-async function poll() {
-  try { render(await api("/api/state")); } catch (e) { $("msg").textContent = "Server gone?"; }
-}
-
-async function action(name, body) {
-  $("msg").textContent = "..."; $("msg").className = "";
-  const res = await api("/api/" + name, body || {});
-  $("msg").textContent = res.ok ? "" : res.error;
-  $("msg").className = res.ok ? "" : "err";
-  poll();
-}
-
-$("refresh").onclick = () => loadRenderers(true);
-$("renderer").onchange = e => localStorage.setItem("renderer", e.target.value);
-$("source").onchange = e => {
-  localStorage.setItem("source", e.target.value);
-  const ext = e.target.value.split(".").pop().toLowerCase();
-  if (ext === "mp3" || ext === "flac") {
-    $("format").value = ext; localStorage.setItem("format", ext);
-  }
-};
-$("format").onchange = e => localStorage.setItem("format", e.target.value);
-$("play").onclick = () => {
-  if (!$("renderer").value) { $("msg").textContent = "Pick a speaker first"; return; }
-  action("play", {renderer: $("renderer").value, source: $("source").value,
-                  format: $("format").value});
-};
-$("pause").onclick = () => action("pause");
-$("stop").onclick = () => action("stop");
-
-loadRenderers(false); poll(); setInterval(poll, 2000);
-</script></body></html>
-"""
 
 
 # --------------------------------------------------------------------------- CLI

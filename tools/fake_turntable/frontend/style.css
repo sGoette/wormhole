@@ -1,0 +1,31 @@
+/* Fake turntable web UI. Light and dark palettes follow the system setting. */
+:root { --bg:#f6f5f2; --card:#fff; --fg:#1d1d1f; --muted:#6e6e73; --line:#dedcd6;
+        --accent:#c2410c; --ok:#15803d; --err:#b91c1c; color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#161615; --card:#21201e; --fg:#f2f1ee; --muted:#a19f99; --line:#3a3936;
+          --accent:#fb923c; --ok:#4ade80; --err:#f87171; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+       font:15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+main { max-width:640px; margin:0 auto; padding:24px 16px 48px; }
+h1 { font-size:20px; margin:0 0 4px; } .sub { color:var(--muted); margin:0 0 20px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+        padding:16px; margin-bottom:14px; }
+label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.05em;
+        color:var(--muted); margin:0 0 6px; }
+.row { display:flex; gap:8px; margin-bottom:14px; } .row:last-child { margin-bottom:0; }
+select, button { font:inherit; color:inherit; border:1px solid var(--line);
+                 border-radius:8px; padding:10px 12px; background:var(--bg); }
+select { flex:1; min-width:0; }
+button { cursor:pointer; } button:disabled { opacity:.5; cursor:default; }
+.controls button { flex:1; font-weight:600; padding:14px; }
+#play { background:var(--accent); border-color:var(--accent); color:#fff; }
+.status { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:14px; }
+.status dt { color:var(--muted); }
+.status dd { margin:0; overflow-wrap:anywhere; white-space:pre-line; }
+.state { font-weight:700; } .PLAYING { color:var(--ok); } .err { color:var(--err); }
+#events { font:12px/1.5 ui-monospace, Menlo, monospace; max-height:240px; overflow:auto;
+          margin:0; white-space:pre-wrap; }
+#events .ERROR { color:var(--err); } #events .WARNING { color:var(--accent); }
+#msg { min-height:1.4em; margin:10px 0 0; font-size:14px; }
+#format { flex:0 0 auto; }

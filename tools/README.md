@@ -1,16 +1,16 @@
 # Mac-only test tools
 
-Never deployed to the NAS.
+Never installed on the server.
 
-## fake_turntable.py
+## fake_turntable/
 
 Stand-in for the Pro-Ject T2 W (STRATEGY.md §2). Standard library only; needs `ffmpeg`.
 
 ```bash
-python3 tools/fake_turntable.py                    # web UI: http://localhost:8765 (also from iPhone)
-python3 tools/fake_turntable.py --list             # every UPnP device, with "AVTransport: yes/no"
-python3 tools/fake_turntable.py --renderer "Kitchen" --source "record.flac" --format flac
-python3 tools/fake_turntable.py --renderer "Kitchen" --stop
+make turntable                                     # web UI: http://localhost:8765 (also iPhone)
+make turntable TT_ARGS="--list"                    # every UPnP device, "AVTransport: yes/no"
+make turntable TT_ARGS='--renderer Kitchen --source record.flac --format flac'
+make turntable TT_ARGS='--renderer Kitchen --stop'
 ```
 
 - **Sources:** a 440 Hz test tone, every audio file in [media/](media/), or a path via `--source`.
@@ -27,3 +27,8 @@ python3 tools/fake_turntable.py --renderer "Kitchen" --stop
 
 Not verified yet: the real T2 W's stream parameters and HTTP headers (STRATEGY.md §5.4).
 The values above are reasonable defaults, to be compared once the device is here.
+
+## make_icons.py
+
+Draws the web UI's app icons (Home Screen, favicon) into `src/wormhole/frontend/icons/`.
+Standard library only. Re-run after changing the design: `python3 tools/make_icons.py`.
