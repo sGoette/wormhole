@@ -53,6 +53,10 @@ for user in owntone wormhole; do
         --home-dir "/var/lib/$user" --shell /usr/sbin/nologin "$user"
 done
 install -d -o owntone -g owntone -m 0755 /var/cache/owntone
+# The .deb starts OwnTone right away with its stock config (uid root), which creates
+# songs3.db owned by root; as `owntone` it then fails with "attempt to write a readonly
+# database". Take over everything in the directory, not just the directory itself.
+chown -R owntone:owntone /var/cache/owntone
 install -d -o wormhole -g wormhole -m 0755 /var/lib/wormhole
 # The web UI updates this checkout with git, as the wormhole user.
 chown -R wormhole:wormhole "$REPO"
@@ -92,6 +96,8 @@ say "Services"
 sed "s|@REPO@|$REPO|g" "$REPO/server/wormhole.service" > /etc/systemd/system/wormhole.service
 systemctl daemon-reload
 systemctl enable --quiet avahi-daemon owntone wormhole
+# A re-run after failed starts: systemd refuses to restart until the counter is reset.
+systemctl reset-failed owntone wormhole 2>/dev/null || true
 systemctl restart avahi-daemon
 systemctl restart owntone
 systemctl restart wormhole
@@ -105,6 +111,11 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
     if curl -fs "http://localhost:$PORT/api/update" >/dev/null; then ok=yes; break; fi
 done
 systemctl --no-pager --lines=0 status owntone wormhole | grep -E "^\S|Active:" || true
+if ! curl -fs http://localhost:3689/api/config >/dev/null; then
+    echo "OwnTone does not answer on port 3689. Its last log lines:"
+    journalctl -u owntone -n 200 --no-pager | grep -E "FATAL|LOG" | tail -n 8
+    exit 1
+fi
 if [ -z "$ok" ]; then
     echo "wormhole did not answer on port $PORT. Logs: journalctl -u wormhole -n 50"
     exit 1

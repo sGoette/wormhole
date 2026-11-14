@@ -40,18 +40,46 @@ git push -u origin main
 
 Normal installer. The important answers:
 - Hostname **`wormhole`**: the web UI is then at `http://wormhole.local:8766`
-- Set a root password (you can skip creating a user)
+- **Root password**: set one (then you log in as `root`). If you leave it empty, `root` is
+  disabled and the user you create next gets `sudo` instead (log in as that user, then
+  `sudo -i`).
+- **User account**: the installer always asks for one (name, username, password). Note it.
 - **Software selection: untick "Debian desktop environment" and "GNOME"**; tick only
   **"SSH server"** (optional, for pasting commands from the Mac) and
   **"standard system utilities"**
 
 After the reboot, remove the ISO from the VM's devices (CDROM).
 
+If the **VNC picture is garbled** (lines shifted into each other): power off the VM, set the
+Display device's resolution to **1024x768**, and/or choose **"Install"** (text) instead of
+"Graphical install" in the boot menu.
+
+If **keys come out wrong in the VNC console** (e.g. `-` gives `'` on a Swiss keyboard): VNC
+sends US key positions. Run `loadkeys us` (permanently:
+`sed -i 's/^XKBLAYOUT=.*/XKBLAYOUT="us"/' /etc/default/keyboard && setupcon`), or use the
+VM's **Serial Shell** in TrueNAS or `ssh <user>@wormhole.local` from the Mac instead, where
+copy-paste works too.
+
+If the VM has **no network after the install** (card DOWN in `ip link`, no DHCP client:
+`dhcpcd`/`dhclient` missing): first check in TrueNAS that its NIC's MAC address differs from
+your other VMs'. Then, with your card name, router and a free address:
+`ip link set enp0s4 up`, `ip addr add 192.0.2.50/24 dev enp0s4`,
+`ip route add default via 192.0.2.1`, `echo nameserver 192.0.2.1 > /etc/resolv.conf`,
+`apt-get update`, `apt-get install -y dhcpcd-base`,
+`echo allow-hotplug enp0s4 >> /etc/network/interfaces`,
+`echo iface enp0s4 inet dhcp >> /etc/network/interfaces`, `reboot`.
+
+If you **don't know any password** after the install: in the boot menu press `e`, add
+` rw init=/bin/bash` to the line starting with `linux`, boot with Ctrl+X, run
+`passwd root`, then `sync` and `reboot -f`.
+
 If the VM boots into a **UEFI shell** instead of Debian (a known snag with bhyve): type
 `FS0:\EFI\debian\grubx64.efi` to boot once, then as root:
 `mkdir -p /boot/efi/EFI/BOOT && cp /boot/efi/EFI/debian/grubx64.efi /boot/efi/EFI/BOOT/BOOTX64.EFI`
 
 ## 4. Install wormhole (VM console, as root)
+
+Log in as `root`, or as your user and then `sudo -i` (if you left the root password empty).
 
 ```sh
 apt-get update && apt-get install -y git
