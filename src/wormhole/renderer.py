@@ -33,6 +33,8 @@ log = logging.getLogger(__name__)
 
 SSDP_ADDR, SSDP_PORT = "239.255.255.250", 1900
 MAX_AGE = 1800
+# How often SSDP re-checks our LAN address (DHCP may still be running at boot, or renew).
+ADDRESS_CHECK = 5.0
 SERVER = f"{platform.system()}/{platform.release()} UPnP/1.0 wormhole/{__version__}"
 
 DEVICE_TYPE = "urn:schemas-upnp-org:device:MediaRenderer:1"
@@ -77,6 +79,12 @@ def local_ip_for(host: str) -> str:
 
 def primary_ip() -> str:
     return local_ip_for("192.0.2.1")  # TEST-NET address: picks the default-route interface
+
+
+def usable_ip(ip: str) -> bool:
+    """A LAN address control points can reach: not loopback, not link-local (169.254.x,
+    which a DHCP client assigns itself while it has no lease yet)."""
+    return not (ip.startswith("127.") or ip.startswith("169.254.") or ip == "0.0.0.0")
 
 
 # --------------------------------------------------------------------------- service specs
@@ -778,13 +786,21 @@ def parse_request(data: bytes) -> Tuple[str, Dict[str, str]]:
 
 
 class SSDP:
-    def __init__(self, udn: str, http_port: int, host_ip: Optional[str] = None):
+    """Discovery on the default-route interface. The address is re-checked every few
+    seconds: at boot the network may not be up yet when we start, and a DHCP lease can
+    change later; without that we would stay joined on loopback and nobody finds us."""
+
+    def __init__(self, udn: str, http_port: int, host_ip: Optional[str] = None,
+                 detect: Callable[[], str] = primary_ip):
         self.udn, self.http_port, self.host_ip = udn, http_port, host_ip
+        self.detect = detect
+        self.iface: Optional[str] = None  # address the multicast group is joined on
         self.stopping = threading.Event()
         self.sock: Optional[socket.socket] = None
+        self._waiting_logged = False
 
     def location(self, peer: Optional[str] = None) -> str:
-        ip = self.host_ip or (local_ip_for(peer) if peer else primary_ip())
+        ip = self.host_ip or (local_ip_for(peer) if peer else self.iface or self.detect())
         return f"http://{ip}:{self.http_port}/description.xml"
 
     def start(self) -> None:
@@ -793,16 +809,15 @@ class SSDP:
         if hasattr(socket, "SO_REUSEPORT"):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.bind(("", SSDP_PORT))
-        iface = self.host_ip or primary_ip()
-        mreq = struct.pack("4s4s", socket.inet_aton(SSDP_ADDR), socket.inet_aton(iface))
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(iface))
         sock.settimeout(1.0)
         self.sock = sock
+        self.check_address()
         threading.Thread(target=self._listen, name="ssdp", daemon=True).start()
         threading.Thread(target=self._announce, name="ssdp-notify", daemon=True).start()
-        log.info("renderer: SSDP on %s, description %s", iface, self.location())
+        if not self.host_ip:
+            threading.Thread(target=self._watch_address, name="ssdp-address",
+                             daemon=True).start()
 
     def stop(self) -> None:
         self.stopping.set()
@@ -810,7 +825,51 @@ class SSDP:
             self._notify_all(alive=False)
             self.sock.close()
 
+    def check_address(self) -> bool:
+        """Join the multicast group on our current LAN address if it changed.
+        Returns True when it (re)joined, so the caller announces us."""
+        ip = self.host_ip or self.detect()
+        if ip == self.iface:
+            return False
+        if not self.host_ip and not usable_ip(ip):
+            if not self._waiting_logged:
+                log.warning("renderer: no LAN address yet (have %s), SSDP waits for one", ip)
+                self._waiting_logged = True
+            return False
+        self._waiting_logged = False
+        if self.iface is not None:
+            try:
+                self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP,
+                                     self._mreq(self.iface))
+            except OSError:
+                pass  # the old address is gone, and its membership with it
+        try:
+            self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, self._mreq(ip))
+            self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
+                                 socket.inet_aton(ip))
+        except OSError as exc:
+            log.warning("renderer: cannot join SSDP on %s: %s", ip, exc)
+            self.iface = None
+            return False
+        old, self.iface = self.iface, ip
+        if old is None:
+            log.info("renderer: SSDP on %s, description %s", ip, self.location())
+        else:
+            log.info("renderer: address changed %s -> %s, SSDP moved", old, ip)
+        return True
+
+    @staticmethod
+    def _mreq(ip: str) -> bytes:
+        return struct.pack("4s4s", socket.inet_aton(SSDP_ADDR), socket.inet_aton(ip))
+
+    def _watch_address(self) -> None:
+        while not self.stopping.wait(ADDRESS_CHECK):
+            if self.check_address():
+                self._burst()
+
     def _notify_all(self, alive: bool) -> None:
+        if self.iface is None:
+            return  # not on the LAN yet; we announce once we are
         for target in ssdp_targets(self.udn):
             try:
                 self.sock.sendto(notify_message(target, self.udn, self.location(), alive),

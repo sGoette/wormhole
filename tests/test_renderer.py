@@ -72,6 +72,66 @@ class SSDPTest(unittest.TestCase):
         self.assertEqual((h["MAN"], h["ST"]), ('"ssdp:discover"', "ssdp:all"))
 
 
+class FakeSocket:
+    """Records multicast membership changes and sent datagrams."""
+
+    def __init__(self):
+        self.joined, self.sent = [], []
+
+    def setsockopt(self, level, option, value):
+        if option == rd.socket.IP_ADD_MEMBERSHIP:
+            self.joined.append(rd.socket.inet_ntoa(value[4:]))
+        elif option == rd.socket.IP_DROP_MEMBERSHIP:
+            self.joined.remove(rd.socket.inet_ntoa(value[4:]))
+
+    def sendto(self, data, addr):
+        self.sent.append(data)
+
+
+class SSDPAddressTest(unittest.TestCase):
+    """The VM case: no lease yet at start (loopback, then link-local), the lease comes later."""
+
+    def make(self, host_ip=None):
+        self.addresses = ["127.0.0.1"]
+        ssdp = rd.SSDP("uuid:1234", 49494, host_ip, detect=lambda: self.addresses[0])
+        ssdp.sock = FakeSocket()
+        return ssdp
+
+    def test_usable_ip(self):
+        self.assertTrue(rd.usable_ip("192.0.2.10"))
+        for ip in ("127.0.0.1", "169.254.28.56", "0.0.0.0"):
+            self.assertFalse(rd.usable_ip(ip), ip)
+
+    def test_waits_for_lan_address_then_joins(self):
+        ssdp = self.make()
+        self.assertFalse(ssdp.check_address())
+        self.addresses[0] = "169.254.28.56"
+        self.assertFalse(ssdp.check_address())
+        ssdp._notify_all(alive=True)
+        self.assertEqual((ssdp.sock.joined, ssdp.sock.sent), ([], []))
+
+        self.addresses[0] = "192.0.2.10"
+        self.assertTrue(ssdp.check_address())
+        self.assertEqual(ssdp.sock.joined, ["192.0.2.10"])
+        self.assertEqual(ssdp.location(), "http://192.0.2.10:49494/description.xml")
+        ssdp._notify_all(alive=True)
+        self.assertIn(b"LOCATION: http://192.0.2.10:49494/", ssdp.sock.sent[0])
+        self.assertFalse(ssdp.check_address())  # unchanged: nothing to do
+
+    def test_follows_address_change(self):
+        ssdp = self.make()
+        self.addresses[0] = "192.0.2.10"
+        ssdp.check_address()
+        self.addresses[0] = "192.0.2.20"
+        self.assertTrue(ssdp.check_address())
+        self.assertEqual(ssdp.sock.joined, ["192.0.2.20"])
+
+    def test_configured_address_wins(self):
+        ssdp = self.make(host_ip="192.0.2.30")
+        self.assertTrue(ssdp.check_address())
+        self.assertEqual(ssdp.sock.joined, ["192.0.2.30"])
+
+
 class RendererTest(unittest.TestCase):
     def setUp(self):
         FakeFeeder.instances = []
