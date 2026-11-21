@@ -9,7 +9,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from test_owntone import FakeOwnTone
@@ -318,3 +318,38 @@ class WebTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtraPortTest(unittest.TestCase):
+    """WEB_EXTRA_PORT: the same UI on a second port (80 on the server)."""
+
+    def test_extra_port_setting(self):
+        self.assertIsNone(web.extra_port({}))
+        self.assertIsNone(web.extra_port({"WEB_EXTRA_PORT": ""}))
+        self.assertEqual(web.extra_port({"WEB_EXTRA_PORT": "80"}), 80)
+        with self.assertRaises(SystemExit):
+            web.extra_port({"WEB_EXTRA_PORT": "eighty"})
+
+    class Hello(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"hello")
+
+        def log_message(self, *args):
+            pass
+
+    def test_serves_the_given_handler(self):
+        self.assertIsNone(web.listen_extra(None, self.Hello))
+        server = web.listen_extra(0, self.Hello)  # 0 = any free port
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_port}/"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            self.assertEqual(resp.read(), b"hello")
+
+    def test_busy_port_is_not_fatal(self):
+        busy = ThreadingHTTPServer(("", 0), self.Hello)
+        self.addCleanup(busy.server_close)
+        with self.assertLogs("wormhole.web", "WARNING"):
+            self.assertIsNone(web.listen_extra(busy.server_port, self.Hello))

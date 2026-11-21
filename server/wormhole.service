@@ -11,6 +11,8 @@ Group=wormhole
 Environment=WORMHOLE_ENV=/etc/wormhole/wormhole.env
 Environment=PYTHONUNBUFFERED=1
 ExecStart=@REPO@/bin/wormhole web
+# Lets the unprivileged user open port 80 (WEB_EXTRA_PORT), nothing else.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 # Updates from the web UI re-execute the process in place (same PID); this only covers crashes.
 Restart=always
 RestartSec=3

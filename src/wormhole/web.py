@@ -236,12 +236,39 @@ def _raise_interrupt(_signum, _frame) -> None:
     raise KeyboardInterrupt
 
 
+def extra_port(cfg: Dict[str, str]) -> Optional[int]:
+    """WEB_EXTRA_PORT: a second port for the same UI (80 = no port in the URL)."""
+    value = cfg.get("WEB_EXTRA_PORT", "").strip()
+    if not value:
+        return None
+    if not value.isdigit():
+        raise SystemExit(f"WEB_EXTRA_PORT must be a port number, not {value!r}")
+    return int(value)
+
+
+def listen_extra(port: Optional[int], handler) -> Optional[QuietHTTPServer]:
+    """Serve the UI on the extra port too. Not fatal when it fails (port 80 needs
+    CAP_NET_BIND_SERVICE, granted by server/wormhole.service): WEB_PORT still works."""
+    if port is None:
+        return None
+    try:
+        server = QuietHTTPServer(("", port), handler)
+    except OSError as exc:
+        log.warning("web UI not on extra port %d (WEB_EXTRA_PORT): %s", port, exc)
+        return None
+    threading.Thread(target=server.serve_forever, name="web-extra", daemon=True).start()
+    log.info("web UI also on port %d", server.server_port)
+    return server
+
+
 def serve(cfg: Dict[str, str], port: int) -> int:
     app = App(cfg)
+    handler = make_handler(app)
     try:
-        server = QuietHTTPServer(("", port), make_handler(app))
+        server = QuietHTTPServer(("", port), handler)
     except OSError as exc:
         raise SystemExit(f"cannot listen on port {port}: {exc}") from None
+    extra = listen_extra(extra_port(cfg), handler)
     # SIGTERM (systemctl stop on the server) gets the same clean shutdown as Ctrl+C.
     signal.signal(signal.SIGTERM, _raise_interrupt)
     if app.renderer_name():
@@ -268,6 +295,9 @@ def serve(cfg: Dict[str, str], port: int) -> int:
             app.renderer.stop()  # SSDP byebye, so control points drop us right away
         app.feed.stop()
         server.server_close()
+        if extra is not None:
+            extra.shutdown()
+            extra.server_close()
     if restart.is_set():
         _reexec()
     return 0

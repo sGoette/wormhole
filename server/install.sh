@@ -115,6 +115,12 @@ systemctl restart wormhole
 say "Check"
 PORT=$(sed -n 's/^WEB_PORT=//p' "$ENV_FILE" | tr -d '"' | head -1)
 PORT=${PORT:-8766}
+EXTRA=$(sed -n 's/^WEB_EXTRA_PORT=//p' "$ENV_FILE" | tr -d '"' | head -1)
+case "$EXTRA" in
+    '') URLPORT=":$PORT" ;;
+    80) URLPORT="" ;;
+    *) URLPORT=":$EXTRA" ;;
+esac
 ok=""
 for _ in 1 2 3 4 5 6 7 8 9 10; do
     sleep 1
@@ -133,7 +139,7 @@ fi
 cat <<EOF
 
 wormhole is running. Web UI:
-  http://$(hostname).local:$PORT
-  http://$(hostname -I | awk '{print $1}'):$PORT
+  http://$(hostname).local$URLPORT
+  http://$(hostname -I | awk '{print $1}')$URLPORT
 Logs: journalctl -u wormhole -f    OwnTone: /var/log/owntone.log
 EOF

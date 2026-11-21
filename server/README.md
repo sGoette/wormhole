@@ -39,7 +39,7 @@ git push -u origin main
 ## 3. Install Debian headless
 
 Normal installer. The important answers:
-- Hostname **`wormhole`**: the web UI is then at `http://wormhole.local:8766`
+- Hostname **`wormhole`**: the web UI is then at `http://wormhole.local` (also on port 8766)
 - **Root password**: set one (then you log in as `root`). If you leave it empty, `root` is
   disabled and the user you create next gets `sudo` instead (log in as that user, then
   `sudo -i`).
