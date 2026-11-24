@@ -359,6 +359,15 @@ class Renderer:
         return {"name": self.name, "state": self.transport_state(), "uri": self.uri,
                 "controller": self.controller}
 
+    def restart_stream(self) -> bool:
+        """Reconnect to the live stream while PLAYING (resume after a pause without the audio
+        that queued up in the meantime). False if nothing is playing from UPnP."""
+        if self.transport_state() != "PLAYING" or not self.uri:
+            return False
+        self._start_feed()
+        return True
+
+
     def _set_state(self, state: str) -> None:
         with self.lock:
             self.state = state

@@ -32,6 +32,7 @@ class FakeFeeder:
         self.started_at = 0.0
         self.restarts, self.last_error = 0, ""
         self.bytes_written = 0
+        self.input = None
         self.first_data_handled = threading.Event()
         self._done = threading.Event()
         FakeFeeder.instances.append(self)
@@ -152,6 +153,33 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.call("PUT", "/api/outputs/111", {"volume": 42})[0], 200)
         self.assertEqual(self.fake.requests[-2], ("PUT", "/api/outputs/111", {"selected": True}))
         self.assertEqual(self.fake.requests[-1], ("PUT", "/api/outputs/111", {"volume": 42}))
+
+    def test_player_bar_proxied_to_owntone(self):
+        self.assertEqual(self.call("PUT", "/api/player/volume", {"volume": 30})[0], 200)
+        self.assertEqual(self.fake.requests[-1][:2], ("PUT", "/api/player/volume?volume=30"))
+        self.assertEqual(self.call("POST", "/api/player/pause")[0], 200)
+        self.assertEqual(self.fake.requests[-1][:2], ("PUT", "/api/player/pause"))
+        self.assertEqual(self.call("POST", "/api/player/play")[0], 200)  # no turntable stream
+        self.assertEqual(self.fake.requests[-1][:2], ("PUT", "/api/player/play"))
+        for bad in (150, -1, "50", True, None):
+            self.assertEqual(self.call("PUT", "/api/player/volume", {"volume": bad})[0], 400)
+
+    def test_play_reconnects_the_turntable_stream(self):
+        restarted = []
+        self.app.renderer = types.SimpleNamespace(renderer=types.SimpleNamespace(
+            restart_stream=lambda: restarted.append(1) or True))
+        before = len(self.fake.requests)
+        self.assertEqual(self.call("POST", "/api/player/play")[0], 200)
+        self.assertEqual(restarted, [1])
+        self.assertEqual(len(self.fake.requests), before)  # no OwnTone play: the feed does it
+
+    def test_state_source_is_the_now_playing_title(self):
+        self.app.cfg["NOW_PLAYING_TITLE"] = "Turntable"
+        self.app.renderer = types.SimpleNamespace(renderer=types.SimpleNamespace(
+            status=lambda: {"name": "Wormhole", "state": "PLAYING"}))
+        state = self.call("GET", "/api/state")[1]
+        self.assertEqual(state["renderer"]["source"], "Turntable")
+        self.assertIsNone(state["input"])  # nothing decoded yet
 
     def test_invalid_volume_rejected_before_owntone(self):
         status, body = self.call("PUT", "/api/outputs/111", {"volume": 150})

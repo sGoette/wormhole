@@ -25,11 +25,52 @@ class FfmpegCommandTest(unittest.TestCase):
         cmd = feed.ffmpeg_command("/m/rec.flac", 44100, 16)
         self.assertEqual(cmd[cmd.index("-stream_loop") + 1], "-1")
 
+    def test_logs_levels_but_no_progress(self):
+        cmd = feed.ffmpeg_command("http://mac:8765/live/tone/stream.flac", 44100, 16)
+        self.assertEqual(cmd[cmd.index("-loglevel") + 1], "level+info")
+        self.assertIn("-nostats", cmd)
+
     def test_rejects_formats_owntone_refuses(self):
         with self.assertRaises(ValueError):
             feed.ffmpeg_command("tone", 22050, 16)
         with self.assertRaises(ValueError):
             feed.ffmpeg_command("tone", 44100, 24)
+
+
+class AudioStreamTest(unittest.TestCase):
+    def test_lossless_and_lossy(self):
+        self.assertEqual(
+            feed.parse_audio_stream("  Stream #0:0: Audio: flac, 48000 Hz, stereo, s32 (24 bit)"),
+            {"codec": "flac", "rate": 48000, "bits": 24, "lossless": True})
+        self.assertEqual(
+            feed.parse_audio_stream("Stream #0:0: Audio: mp3, 44100 Hz, stereo, fltp, 320 kb/s"),
+            {"codec": "mp3", "rate": 44100, "bits": None, "lossless": False})
+        self.assertEqual(feed.parse_audio_stream(
+            "Stream #0:0: Audio: pcm_s16le, 44100 Hz, 2 channels, s16, 1411 kb/s")["bits"], 16)
+        self.assertTrue(feed.parse_audio_stream(
+            "Stream #0:0: Audio: pcm_s24le, 96000 Hz, 2 channels, s32 (24 bit)")["lossless"])
+        self.assertIsNone(feed.parse_audio_stream("Stream mapping:"))
+
+    def test_drain_takes_the_input_and_keeps_errors(self):
+        # what `ffmpeg -loglevel level+info` writes for a 24-bit FLAC stream that then fails
+        log_lines = [
+            "[info] Input #0, flac, from 'http://192.0.2.10:8145/stream.flac':",
+            "[info]   Duration: N/A, start: 0.000000, bitrate: N/A",
+            "[info]   Stream #0:0: Audio: flac, 48000 Hz, stereo, s32 (24 bit)",
+            "[info] Stream mapping:",
+            "[info] Output #0, s16le, to 'pipe:':",
+            "[info]   Stream #0:0: Audio: pcm_s16le, 44100 Hz, stereo, s16, 1411 kb/s",
+            "[flac @ 0x7f] [warning] invalid frame header",
+            "[tcp @ 0x7f] [error] Connection reset by peer",
+            "an unmarked line",
+        ]
+        f = feed.Feeder("tone", Path("/tmp/x"), 44100, 16)
+        errors = feed.deque(maxlen=10)
+        with self.assertLogs("wormhole.feed", "INFO"):
+            f._drain(iter((line + "\n").encode() for line in log_lines), errors)
+        self.assertEqual(f.input, {"codec": "flac", "rate": 48000, "bits": 24, "lossless": True})
+        self.assertEqual(list(errors), ["[tcp @ 0x7f] Connection reset by peer",
+                                        "an unmarked line"])
 
 
 class FifoTest(unittest.TestCase):

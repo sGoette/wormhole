@@ -107,4 +107,13 @@ export function render(s) {
   $("p-state").textContent = s.error ? "not reachable"
     : p ? `${p.state}, master volume ${p.volume}` : "-";
   $("p-state").className = s.error ? "err" : p && p.state === "play" ? "good" : "";
+  $("i-format").textContent = describeInput(s.input);
+}
+
+// "FLAC · 24 bit · 48 kHz · lossless", from the codec ffmpeg decodes (feed.py).
+function describeInput(i) {
+  if (!i) return "-";
+  const codec = i.codec.startsWith("pcm_") ? "PCM" : i.codec.toUpperCase();
+  return [codec, i.bits ? `${i.bits} bit` : "", `${i.rate / 1000} kHz`,
+          i.lossless ? "lossless" : "lossy"].filter(Boolean).join(" · ");
 }

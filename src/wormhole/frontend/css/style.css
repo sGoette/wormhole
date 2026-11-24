@@ -1,13 +1,14 @@
 /* wormhole web UI. Phone first (Home Screen app on iPhone), wider screens get a grid.
-   Light and dark palettes follow the system setting. Colours come from the app icon: its
-   blue-to-magenta gradient marks what is active, its violet midpoint is the accent. */
+   Light and dark palettes follow the system setting. Colours come from the app icon: blue
+   fills what is on (switches, sliders, buttons), magenta draws borders. The two never touch:
+   they are complementary and too close in brightness (contrast 1.7:1). Text on blue is dark:
+   white on it would be too faint (2.9:1). */
 
 :root {
   --bg: #f6f5f2; --card: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #dedcd6;
-  --grad-a: #009dff; --grad-b: #db006e;  /* the icon's gradient */
-  --grad: linear-gradient(90deg, var(--grad-a), var(--grad-b));
-  --accent: #6d4eb6; --accent-fg: #fff; --ok: #15803d; --err: #b91c1c;
-  --edge: 45%;  /* how much of the gradient shows in the border of a speaker that is on */
+  --blue: #009dff; --on-blue: #161615;  /* fills, and what is drawn on them */
+  --pink: #db006e;  /* borders */
+  --ok: #15803d; --err: #b91c1c;
   --track: #e7e5e0; --shadow: 0 1px 2px rgb(0 0 0 / 6%);
   --radius: 14px;
   --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -17,8 +18,8 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #161615; --card: #21201e; --fg: #f2f1ee; --muted: #a19f99; --line: #3a3936;
-    --accent: #a990f5; --ok: #4ade80; --err: #f87171;
-    --track: #3a3936; --shadow: none; --edge: 55%;
+    --ok: #4ade80; --err: #f87171;
+    --track: #3a3936; --shadow: none;
     color-scheme: dark;
   }
 }
@@ -53,14 +54,6 @@ button, label.switch, input[type=range] { touch-action: manipulation; }
 .logo, .logo img { display: block; width: 56px; height: 56px; }
 .logo { justify-self: end; }
 h1 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
-.now {
-  font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
-}
-.now::before {
-  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px;
-  border-radius: 50%; background: var(--grad); vertical-align: 1px;
-}
 .icon-btn {
   flex: none; width: 44px; height: 44px; border: 0; border-radius: 50%; padding: 10px;
   background: transparent; color: var(--muted); cursor: pointer;
@@ -71,7 +64,8 @@ h1 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
 /* -- main: speakers */
 main {
   max-width: 980px; margin: 0 auto;
-  padding: 4px calc(16px + var(--safe-right)) calc(32px + var(--safe-bottom))
+  /* Room at the bottom for the player bar floating above the content. */
+  padding: 4px calc(16px + var(--safe-right)) calc(160px + var(--safe-bottom))
            calc(16px + var(--safe-left));
 }
 .banner { margin: 0 0 12px; font-size: 14px; white-space: pre-line; }
@@ -92,17 +86,11 @@ main {
 .spk .name { font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
 .spk .meta { font-size: 13px; color: var(--muted); }
 .spk.off .name { color: var(--muted); }
-/* A speaker that is on gets a faint gradient edge (the border shows the second background). */
-.spk:not(.off) {
-  border-color: transparent;
-  background:
-    linear-gradient(var(--card), var(--card)) padding-box,
-    linear-gradient(120deg, color-mix(in srgb, var(--grad-a) var(--edge), var(--line)),
-                    color-mix(in srgb, var(--grad-b) var(--edge), var(--line))) border-box;
-}
+/* A speaker that is on gets a magenta edge; its blue switch and slider keep their distance. */
+.spk:not(.off) { border-color: var(--pink); }
 .spk-volume { display: flex; align-items: center; gap: 10px; }
 .spk-volume svg { width: 20px; height: 20px; flex: none; fill: var(--muted); }
-.spk .vol {
+.vol {
   min-width: 3ch; text-align: right; font-size: 14px; color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -120,20 +108,20 @@ main {
   border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgb(0 0 0 / 25%);
   transition: transform .2s;
 }
-.switch input:checked + span { background: var(--grad); }
+.switch input:checked + span { background: var(--blue); }
 .switch input:checked + span::after { transform: translateX(20px); }
-.switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Focus ring in the text colour: a magenta one would touch the blue. */
+.switch input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: 2px; }
 
 /* Volume slider with a thumb big enough for a finger */
 input[type=range] {
   flex: 1; min-width: 0; height: 32px; margin: 0; background: transparent;
   -webkit-appearance: none; appearance: none; cursor: pointer;
 }
-/* The gradient spans the whole track and is uncovered up to the volume: blue when quiet,
-   magenta when loud. */
+/* Blue up to the volume (--fill, set by the JS), track colour after it. */
 input[type=range]::-webkit-slider-runnable-track {
   height: 6px; border-radius: 3px;
-  background: linear-gradient(to right, transparent var(--fill, 50%), var(--track) 0), var(--grad);
+  background: linear-gradient(to right, var(--blue) var(--fill, 50%), var(--track) 0);
 }
 input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none; width: 26px; height: 26px; margin-top: -10px; border-radius: 50%;
@@ -143,7 +131,7 @@ input[type=range]::-moz-range-track {
   height: 6px; border-radius: 3px; background: var(--track);
 }
 input[type=range]::-moz-range-progress {
-  height: 6px; border-radius: 3px; background: var(--grad);
+  height: 6px; border-radius: 3px; background: var(--blue);
 }
 input[type=range]::-moz-range-thumb {
   width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 0;
@@ -151,7 +139,7 @@ input[type=range]::-moz-range-thumb {
 }
 
 .pin .note { margin: 0 0 8px; font-size: 14px; color: var(--muted); }
-.pin .note.ask { color: var(--accent); font-weight: 600; }
+.pin .note.ask { color: var(--fg); font-weight: 600; }
 .pin .note.err { color: var(--err); }
 
 /* -- form controls */
@@ -163,12 +151,12 @@ input[type=text] {
   font-size: 16px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg);
 }
-input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+input[type=text]:focus { outline: 2px solid var(--pink); outline-offset: -1px; }
 .row button, .text-btn {
   font-weight: 600; padding: 11px 16px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg); cursor: pointer;
 }
-button.primary { background: var(--grad); border-color: transparent; color: var(--accent-fg); }
+button.primary { background: var(--blue); border-color: transparent; color: var(--on-blue); }
 button:disabled { opacity: .45; cursor: default; }
 
 /* -- settings overlay: bottom sheet on phones, centred panel on wider screens */
@@ -189,7 +177,7 @@ dialog::backdrop { background: rgb(0 0 0 / 40%); }
   justify-content: space-between; padding: 12px 0; background: var(--bg);
 }
 .sheet-head h2 { font-size: 20px; margin: 0; }
-.text-btn { border: 0; background: transparent; color: var(--accent); padding: 8px 4px; }
+.text-btn { border: 0; background: transparent; color: var(--fg); padding: 8px 4px; }
 .group {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 14px 16px; margin-top: 12px;
@@ -220,3 +208,45 @@ dialog::backdrop { background: rgb(0 0 0 / 40%); }
 .vis-row:first-child { border-top: 0; padding-top: 0; }
 .vis-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .vis-row.hidden-spk .vis-name { color: var(--muted); }
+
+/* -- player bar: source, play/pause, master volume. Floats above the bottom edge. */
+.player {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none;
+  padding: 0 calc(12px + var(--safe-right)) calc(10px + var(--safe-bottom))
+           calc(12px + var(--safe-left));
+}
+.player-card {
+  pointer-events: auto; max-width: 640px; margin: 0 auto; padding: 12px 16px 6px;
+  display: grid; gap: 4px; border: 1px solid var(--line); border-radius: 22px;
+  background: var(--card);
+  background: color-mix(in srgb, var(--card) 86%, transparent);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 14%);
+  -webkit-user-select: none; user-select: none;
+}
+.player-top { display: flex; align-items: center; gap: 12px; }
+.player-info { flex: 1; min-width: 0; }
+.player-source { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.source-name {
+  font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis;
+}
+.player-state { font-size: 13px; color: var(--muted); }
+.player.idle .source-name { color: var(--muted); }
+/* Magenta outline only, so it never sits on or against the blue. */
+.badge {
+  flex: none; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; padding: 2px 7px; border: 1px solid var(--pink);
+  border-radius: 6px; color: var(--fg);
+}
+.play-btn {
+  flex: none; width: 48px; height: 48px; border: 0; border-radius: 50%; padding: 12px;
+  background: var(--blue); color: var(--on-blue); cursor: pointer;
+}
+.play-btn svg { width: 100%; height: 100%; fill: currentColor; }
+.play-btn .i-pause, .play-btn.playing .i-play { display: none; }
+.play-btn.playing .i-pause { display: block; }
+.play-btn:disabled { background: var(--track); color: var(--muted); opacity: 1; }
+.play-btn:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.player-volume { display: flex; align-items: center; gap: 10px; }
+.player-volume svg { width: 20px; height: 20px; flex: none; fill: var(--muted); }

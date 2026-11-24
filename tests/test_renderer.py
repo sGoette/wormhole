@@ -193,6 +193,16 @@ class RendererTest(unittest.TestCase):
         self.assertEqual(self.state(), "STOPPED")
         self.assertTrue(FakeFeeder.instances[-1].stopping)
 
+    def test_restart_stream_only_while_playing(self):
+        renderer = self.service.renderer
+        self.assertFalse(renderer.restart_stream())
+        ft.set_uri(self.r, URI, "")
+        ft.play(self.r)
+        self.assertTrue(renderer.restart_stream())
+        self.assertEqual(len(FakeFeeder.instances), 2)
+        self.assertTrue(FakeFeeder.instances[0].stopping)
+        self.assertEqual(self.state(), "PLAYING")
+
     def test_rename_is_live_and_a_new_device(self):
         old_udn = self.service.renderer.udn
         ft.set_uri(self.r, URI, "")

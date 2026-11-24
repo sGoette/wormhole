@@ -2,19 +2,13 @@
 // The speaker list updates itself this way, so there is no refresh button.
 
 import {$, get} from "./api.js";
+import * as player from "./player.js";
 import * as settings from "./settings.js";
 import * as software from "./software.js";
 import * as speakers from "./speakers.js";
 
 const POLL_MS = 1500;
 let busy = false, timer = null;
-
-function renderNow(s) {
-  const r = s.renderer, now = $("now");
-  const playing = r && r.state === "PLAYING";
-  now.hidden = !playing;
-  now.textContent = playing ? "Playing" : "";
-}
 
 async function poll() {
   if (busy) return;
@@ -24,7 +18,7 @@ async function poll() {
     $("conn").hidden = !s.error;
     $("conn").textContent = s.error ? `OwnTone: ${s.error}` : "";
     if (!s.error) speakers.render(s.outputs.filter(o => !o.hidden), s.outputs.length);
-    renderNow(s);
+    player.render(s);
     settings.render(s);
   } catch (e) {
     $("conn").hidden = false;
@@ -45,6 +39,8 @@ function schedule() {
 }
 
 speakers.onChange(poll);
+player.onChange(poll);
+player.init();
 settings.onChange(poll);
 settings.init(() => { poll(); software.refresh(); });
 software.init();

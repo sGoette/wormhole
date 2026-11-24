@@ -11,11 +11,17 @@ OwnTone earlier left the HomePods silent while OwnTone itself played (2026-11-13
 
 PCM is little-endian (s16le / s32le): OwnTone reads host byte order, and both the Mac (arm64)
 and the server (amd64) are little-endian.
+
+What arrives is read from ffmpeg's own log (`-loglevel level+info`): the input's audio stream
+line ("Audio: flac, 48000 Hz, stereo, s32 (24 bit)") gives codec, rate and bit depth, so the
+web UI can show whether the turntable really sends lossless audio. No second connection to
+the live stream (an ffprobe) is needed.
 """
 
 import errno
 import logging
 import os
+import re
 import select
 import signal
 import stat
@@ -35,6 +41,24 @@ VALID_RATES = (44100, 48000, 88200, 96000)  # what OwnTone's pipe input accepts
 VALID_BITS = (16, 32)
 CHUNK = 16384  # ~93 ms of 44.1 kHz s16 stereo
 READER_CLOSED = "the reader closed the pipe"
+LOSSLESS_CODECS = ("flac", "alac", "wavpack", "ape", "tta", "mlp", "truehd")  # and pcm_*
+# "[tcp @ 0x7f] [error] Connection refused": the level that -loglevel level+info adds
+LOG_LEVEL = re.compile(r"\[(panic|fatal|error|warning|info|verbose|debug|trace)\] ?")
+AUDIO_STREAM = re.compile(r"Stream #\d+:\d+\S*: Audio: ([\w-]+)[^,]*, (\d+) Hz"
+                          r"(?:, [^,]+)?(?:, (\w+)(?: \((\d+) bit\))?)?")
+
+
+def parse_audio_stream(line: str) -> Optional[Dict]:
+    """Codec, sample rate and bit depth from an ffmpeg "Stream #0:0: Audio: ..." line."""
+    m = AUDIO_STREAM.search(line)
+    if not m:
+        return None
+    codec, rate, fmt, bits = m.group(1), int(m.group(2)), m.group(3) or "", m.group(4)
+    if bits is None:  # "s16" / "s32p" carry it; "fltp" (lossy decoders) does not
+        sized = re.match(r"[su](\d+)", fmt)
+        bits = sized.group(1) if sized else None
+    return {"codec": codec, "rate": rate, "bits": int(bits) if bits else None,
+            "lossless": codec in LOSSLESS_CODECS or codec.startswith("pcm_")}
 
 
 def ffmpeg_command(source: str, rate: int, bits: int) -> List[str]:
@@ -43,7 +67,8 @@ def ffmpeg_command(source: str, rate: int, bits: int) -> List[str]:
         raise ValueError(f"sample rate {rate} not accepted by OwnTone ({VALID_RATES})")
     if bits not in VALID_BITS:
         raise ValueError(f"bits {bits} not accepted by OwnTone ({VALID_BITS})")
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin"]
+    # level+info: errors stay recognisable ("[error]"), and the input's format is logged
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "level+info", "-nostats", "-nostdin"]
     if source == TONE:
         cmd += ["-re", "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate={rate}"]
     elif "://" in source:
@@ -83,6 +108,7 @@ class Feeder:
         self.last_error = ""
         self.bytes_written = 0
         self.last_data_at = 0.0
+        self.input: Optional[Dict] = None  # parse_audio_stream() of what ffmpeg decodes
 
     def install_signal_handlers(self) -> None:
         """Ctrl+C / SIGTERM stop the feed cleanly. Main thread only."""
@@ -213,12 +239,29 @@ class Feeder:
                 self.proc.kill()
                 self.proc.wait()
 
-    @staticmethod
-    def _drain(stream: IO[bytes], into: deque) -> None:
+    def _drain(self, stream: IO[bytes], into: deque) -> None:
+        """ffmpeg's log: errors go to `into`, the input's audio format to self.input."""
+        in_input = False
         for line in stream:
             text = line.decode("utf-8", "replace").strip()
-            if text:
-                into.append(text)
+            m = LOG_LEVEL.search(text)
+            level = m.group(1) if m else "error"
+            msg = f"{text[:m.start()]}{text[m.end():]}".strip() if m else text
+            if not msg or level == "warning":
+                continue
+            if level in ("panic", "fatal", "error"):
+                into.append(msg)
+            elif msg.startswith("Input #"):
+                in_input = True
+            elif msg.startswith(("Output #", "Stream mapping")):
+                in_input = False  # the output's "Stream ... Audio: pcm_s16le" is ours
+            elif in_input:
+                found = parse_audio_stream(msg)
+                if found and found != self.input:
+                    self.input = found
+                    bits = f", {found['bits']} bit" if found["bits"] else ""
+                    log.info("input: %s %s Hz%s, %s", found["codec"], found["rate"], bits,
+                             "lossless" if found["lossless"] else "lossy")
 
 
 class FeedControl:
@@ -290,4 +333,5 @@ class FeedControl:
             "last_error": feeder.last_error if feeder else "",
             "bytes": feeder.bytes_written if feeder else 0,
             "flowing": bool(running and feeder.flowing()),
+            "input": feeder.input if running and feeder else None,
         }

@@ -38,7 +38,6 @@
   </button>
   <div class="title">
     <h1>Wormhole</h1>
-    <span id="now" class="now" hidden></span>
   </div>
   <!-- The icons' background is the page colour of each theme, so they sit flush. -->
   <picture class="logo">
@@ -54,6 +53,36 @@
     <p class="empty">Loading speakers&hellip;</p>
   </div>
 </main>
+
+<!-- Player bar, floating above the bottom edge like an iOS tab bar. -->
+<footer class="player" aria-label="Now playing">
+  <div class="player-card">
+    <div class="player-top">
+      <div class="player-info">
+        <div class="player-source">
+          <span id="pl-source" class="source-name">Nothing playing</span>
+          <span id="pl-lossless" class="badge" hidden>Lossless</span>
+        </div>
+        <div id="pl-state" class="player-state">Start a record in the turntable app</div>
+      </div>
+      <button id="pl-toggle" class="play-btn" aria-label="Play" disabled>
+        <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.6-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8
+            5.14Z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="6" y="4.5" width="4" height="15" rx="1.2"/>
+          <rect x="14" y="4.5" width="4" height="15" rx="1.2"/></svg>
+      </button>
+    </div>
+    <div class="player-volume">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 9v6h4l5 5V4L7 9H3Zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05
+          A4.47 4.47 0 0 0 16.5 12Z"/></svg>
+      <input id="pl-volume" type="range" min="0" max="100" step="1" aria-label="Master volume">
+      <span id="pl-vol" class="vol"></span>
+    </div>
+  </div>
+</footer>
 
 <dialog id="settings" aria-labelledby="settings-title">
   <div class="sheet">
@@ -76,6 +105,7 @@
       <dl class="facts">
         <dt>State</dt><dd id="r-state">-</dd>
         <dt>OwnTone</dt><dd id="p-state">-</dd>
+        <dt>Stream</dt><dd id="i-format">-</dd>
       </dl>
     </section>
 

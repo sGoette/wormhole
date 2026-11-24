@@ -29,7 +29,7 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 | `src/wormhole/` | Mac + server | All code that runs on the server. |
 | `src/wormhole/__main__.py` | Mac + server | CLI: one subcommand per feature (`web`, `feed`, `owntone`, `update`, …). |
 | `src/wormhole/config.py` | Mac + server | `KEY=VALUE` env loader; env vars override; relative paths → repo root. |
-| `src/wormhole/feed.py` | Mac + server | Input → ffmpeg → relay into OwnTone's pipe; starts OwnTone on first audio; `FeedControl` (shared by web UI and renderer). |
+| `src/wormhole/feed.py` | Mac + server | Input → ffmpeg → relay into OwnTone's pipe; starts OwnTone on first audio; input format (codec, lossless) from ffmpeg's log; `FeedControl` (shared by web UI and renderer). |
 | `src/wormhole/httpserver.py` | Mac + server | Small HTTP server: `Router` (`PUT /api/outputs/{id}`), `StaticFiles` (ETag, no path escape), JSON errors. |
 | `src/wormhole/owntone.py` | Mac + server | OwnTone JSON API client; `wormhole owntone outputs/select/status/…`. |
 | `src/wormhole/owntoneconf.py` | Mac + server | Renders `config/owntone.conf.in` (`wormhole owntone-config`). |
@@ -37,7 +37,7 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 | `src/wormhole/settings.py` | Mac + server | Settings changed in the web UI (renderer name, hidden speakers), JSON in `SETTINGS_FILE`; wins over the env file. |
 | `src/wormhole/update.py` | Mac + server | git-based updates: check / fast-forward / rollback (`wormhole update`, web UI). |
 | `src/wormhole/web.py` | Mac + server | `wormhole web`: the JSON API (`routes()`), serves `frontend/`; starts/renames the renderer; re-execs itself after updates. |
-| `src/wormhole/frontend/` | browser | Web UI (Home Screen web app): `index.html`, `manifest.webmanifest`, `favicon.ico`, `css/style.css`, `icons/` (masters `wormhole-dark.svg` / `wormhole-light.svg` plus the files rendered from them: favicons, Home Screen, renderer icons, `now-playing.jpg`), `js/` (ES modules: `api`, `speakers`, `settings`, `software`, `main`). |
+| `src/wormhole/frontend/` | browser | Web UI (Home Screen web app): `index.html`, `manifest.webmanifest`, `favicon.ico`, `css/style.css`, `icons/` (masters `wormhole-dark.svg` / `wormhole-light.svg` plus the files rendered from them: favicons, Home Screen, renderer icons, `now-playing.jpg`), `js/` (ES modules: `api`, `speakers`, `player`, `settings`, `software`, `main`). |
 | `bin/wormhole` | Mac + server | POSIX sh launcher; sets `PYTHONPATH`; config `$WORMHOLE_ENV` → `/etc/wormhole/wormhole.env` → `config/local.env`. |
 | `config/local.env` | Mac | Mac settings. |
 | `config/owntone.conf.in` | both | OwnTone config template (HomePod User-Agent fix, pipe settings, local audio off). |
@@ -91,7 +91,8 @@ When adding a directory or a new kind of file, update this table and the README 
 - Plain HTML, CSS and JavaScript: no build step, no frameworks, no CDN (the server has no
   internet guarantee and the UI must work offline on the LAN).
 - wormhole's JS is ES modules, one per part of the page, sharing `js/api.js` (`call`, `get`,
-  `flash`). The main view shows only the speakers; everything else goes in the settings overlay.
+  `flash`). The main view shows only the speakers and the player bar (source, play/pause,
+  master volume); everything else goes in the settings overlay.
   API calls only through `call()`; every `/api/...` path used must exist in `web.routes()`
   (a test checks this).
 - Markup in `index.html` (repeated rows as `<template>`), styles in CSS (no inline `style=`).
@@ -99,6 +100,9 @@ When adding a directory or a new kind of file, update this table and the README 
   `innerHTML`, for anything that comes from the API or a device.
 - Phone first (Home Screen app on iPhone): touch targets ≥ 44 px, inputs ≥ 16 px font (else
   iOS zooms), safe-area insets, light and dark palette; check at 390 px and at desktop width.
+- Colours from the logo, no gradients: blue `--blue` (#009dff) for filled things that need
+  colour (switches, sliders, buttons; dark text/icons on it), magenta `--pink` (#db006e) for
+  borders. Never put the two next to each other (complementary, contrast only 1.7:1).
 
 ### Shell (`bin/`, `server/`, `scripts/`, `tools/owntone-mac/`)
 - POSIX `#!/bin/sh`: must run with Debian's `dash` and macOS `sh`. No bashisms (`[[ ]]`,

@@ -131,7 +131,13 @@ class App:
 
     def state(self) -> dict:
         out: dict = {"outputs": [], "player": None, "error": "",
-                     "renderer": self.renderer.renderer.status() if self.renderer else None}
+                     "renderer": self.renderer.renderer.status() if self.renderer else None,
+                     # what ffmpeg decodes (codec, rate, bits, lossless), from its own log
+                     "input": self.feed.state()["input"]}
+        if out["renderer"] is not None:
+            # Shown in the player bar. The turntable doesn't announce a name of its own
+            # (no SSDP answer, 2026-11-24), so it is the "now playing" title.
+            out["renderer"]["source"] = self.cfg.get("NOW_PLAYING_TITLE", "")
         try:
             outputs = sorted(self.owntone.outputs(), key=lambda o: o.name.lower())
             hidden = self.hidden_outputs()
@@ -177,6 +183,23 @@ class App:
                                   "press Pair.") from None
             raise OwnToneError(self.explain(exc, since)) from None
 
+    # -- player bar: master volume, play / pause
+    def player_volume(self, body: dict) -> None:
+        volume = body.get("volume")
+        if not (isinstance(volume, int) and not isinstance(volume, bool) and 0 <= volume <= 100):
+            raise ValueError("volume must be an integer 0-100")
+        self.owntone.set_master_volume(volume)
+
+    def player_play(self) -> None:
+        """While the turntable streams, reconnect to the live stream: a plain OwnTone play
+        would first play what queued up during the pause, and stay that far behind."""
+        if self.renderer is not None and self.renderer.renderer.restart_stream():
+            return
+        self.owntone.play()
+
+    def player_pause(self) -> None:
+        self.owntone.pause()
+
     def pair_output(self, output_id: str, pin: str) -> None:
         """PIN pairing as OwnTone expects it (maintainer, issue #1967): switching on started
         pairing and the device shows a PIN; send the PIN on its own, then switch on again."""
@@ -214,6 +237,9 @@ def routes(app: App) -> Router:
           lambda req: app.set_hidden(req.params["id"], req.json().get("hidden")))
     r.add("POST", "/api/outputs/{id}/pair",
           lambda req: app.pair_output(req.params["id"], str(req.json().get("pin", ""))))
+    r.add("PUT", "/api/player/volume", lambda req: app.player_volume(req.json()))
+    r.add("POST", "/api/player/play", lambda req: app.player_play())
+    r.add("POST", "/api/player/pause", lambda req: app.player_pause())
     r.add("PUT", "/api/renderer", lambda req: app.set_renderer_name(req.json().get("name")))
     r.add("GET", "/api/update", lambda req: app.update_status())
     r.add("POST", "/api/update/check", lambda req: dict(app.check_update(), ok=True))
