@@ -43,7 +43,10 @@ else
     curl -fsSL --retry 2 -o "$DEB" "$OWNTONE_URL"
     echo "$OWNTONE_SHA256  $DEB" | sha256sum -c --quiet || die "OwnTone .deb checksum mismatch"
     chmod 0644 "$DEB"  # apt's sandbox user must be able to read it
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$DEB"
+    # /etc/owntone.conf is ours (rendered below): keep it instead of dpkg asking on upgrades.
+    # The package's new stock file lands next to it as /etc/owntone.conf.dpkg-dist.
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$DEB"
     rm -f "$DEB"
 fi
 
