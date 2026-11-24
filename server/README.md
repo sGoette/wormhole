@@ -139,6 +139,10 @@ Debian itself: `apt-get update && apt-get upgrade` now and then (as root).
 - **A speaker can pause everything** (e.g. an Apple TV falling asleep, seen with 29.3; with
   29.4's MediaRemote "now playing" it stays awake). Play from Control Center resumes. After a
   *stop*, nothing restarts the pipe (autostart is off): stop and start the turntable.
+- **Lossless from the turntable** (`LOSSLESS_STREAM_PORT=8146`): the Pro-Ject T2 W pushes MP3
+  to every renderer and FLAC only to a list of brands, but serves FLAC 24 bit / 48 kHz on port
+  8146 to anyone (undocumented). The renderer plays that instead when it answers as FLAC, else
+  the pushed stream. Settings → Stream shows what is decoded.
 - **PIN devices** (Apple TV): switch on → PIN shown → send the PIN alone → switch on again
   (OwnTone issue #1967). The web UI does this with its *Pair* button.
 - **Local audio output is off** (`audio { type = "disabled" }`): the VM has no sound card, and

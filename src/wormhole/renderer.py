@@ -16,6 +16,7 @@ import socket
 import struct
 import threading
 import time
+import urllib.parse
 import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
@@ -271,6 +272,31 @@ def description_xml(name: str, udn: str) -> bytes:
 
 # --------------------------------------------------------------------------- SOAP
 
+def content_type(url: str, timeout: float = 1.5) -> str:
+    """Content-Type of `url` from a HEAD request (no audio is pulled), "" if it fails."""
+    req = urllib.request.Request(url, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.headers.get("Content-Type", "")
+    except (OSError, ValueError):
+        return ""
+
+
+def lossless_alternative(uri: str, port: Optional[int],
+                         probe: Callable[[str], str] = content_type) -> Optional[str]:
+    """The same host's FLAC stream on `port`, if it answers as FLAC; else None.
+
+    The Pro-Ject T2 W pushes its MP3 stream (port 8145) to every renderer, and FLAC only to a
+    built-in list of devices, but it serves the 24-bit/48 kHz FLAC stream on port 8146 to
+    anyone who asks, whatever its lossless setting (undocumented, seen 2026-11-24).
+    """
+    parts = urllib.parse.urlparse(uri)
+    if not port or parts.scheme != "http" or not parts.hostname or parts.port == port:
+        return None
+    candidate = f"http://{parts.hostname}:{port}/"
+    return candidate if "flac" in probe(candidate).lower() else None
+
+
 class UPnPFault(Exception):
     def __init__(self, code: int, description: str):
         super().__init__(f"{code} {description}")
@@ -325,8 +351,11 @@ class Renderer:
     """Transport state machine plus the SOAP action handlers."""
 
     def __init__(self, name: str, feed_control, owntone: Optional[OwnTone] = None,
-                 udn: Optional[str] = None, pipe_name: str = "turntable"):
+                 udn: Optional[str] = None, pipe_name: str = "turntable",
+                 lossless_port: Optional[int] = None):
         self.name = name
+        self.lossless_port = lossless_port  # LOSSLESS_STREAM_PORT, see lossless_alternative()
+        self.probe: Callable[[str], str] = content_type  # replaced in tests
         self.pipe_name = pipe_name  # file name of PCM_PIPE, to find it in OwnTone's library
         self.udn = udn or udn_for(name)
         self.feed = feed_control
@@ -419,9 +448,14 @@ class Renderer:
 
     def _start_feed(self) -> None:
         try:
+            source = lossless_alternative(self.uri, self.lossless_port, self.probe)
+            if source:
+                log.info("renderer: playing the lossless stream %s instead of %s",
+                         source, self.uri)
             # OwnTone starts when the first audio arrives, not now: a FLAC stream needs ~3 s,
             # longer than OwnTone's start buffer, and the HomePods then stay silent.
-            self.feed.start(self.uri, origin="upnp", on_first_data=self._owntone_play)
+            self.feed.start(source or self.uri, origin="upnp",
+                            on_first_data=self._owntone_play)
         except (ValueError, SystemExit) as exc:
             raise UPnPFault(716, f"Resource not found: {exc}") from None
         with self.lock:
@@ -663,6 +697,11 @@ def make_handler(renderer: Renderer, subs: Subscriptions) -> type:
             log.debug("renderer http %s %s", self.address_string(), fmt % args)
 
         def log_request(self, code: Any = "-", size: Any = "-") -> None:
+            # Unlike the web UI the renderer gets few requests, and which ones a control point
+            # makes shows what it checks before picking a stream (e.g. MP3 or FLAC): all of
+            # them at debug, failures as before.
+            log.debug("renderer http %s %s %s -> %s (User-Agent: %s)", self.address_string(),
+                      self.command, self.path, code, self.headers.get("User-Agent", "-"))
             if worth_logging(code):
                 super().log_request(code, size)
 
@@ -920,6 +959,8 @@ class SSDP:
                 continue
             targets = matching_targets(headers.get("ST", ""), self.udn)
             if targets:
+                log.debug("ssdp: %s searches %s (User-Agent: %s)", addr[0], headers.get("ST"),
+                          headers.get("USER-AGENT", "-"))
                 mx = headers.get("MX", "1")
                 delay = random.uniform(0, min(int(mx) if mx.isdigit() else 1, 2) / 2)
                 threading.Timer(delay, self._reply, args=(targets, addr)).start()
@@ -940,8 +981,9 @@ class RendererService:
 
     def __init__(self, name: str, port: int, feed_control, owntone: Optional[OwnTone],
                  host_ip: Optional[str] = None, ssdp: bool = True,
-                 pipe_name: str = "turntable"):
-        self.renderer = Renderer(name, feed_control, owntone, pipe_name=pipe_name)
+                 pipe_name: str = "turntable", lossless_port: Optional[int] = None):
+        self.renderer = Renderer(name, feed_control, owntone, pipe_name=pipe_name,
+                                 lossless_port=lossless_port)
         self.subs = Subscriptions(self.renderer)
         self.renderer.on_change = self.subs.notify
         self.http = QuietHTTPServer(("", port), make_handler(self.renderer, self.subs))

@@ -114,7 +114,9 @@ class App:
         self.renderer = factory(name, int(self.cfg.get("RENDERER_PORT", "49494")),
                                 self.feed, self.owntone,
                                 host_ip=self.cfg.get("RENDERER_IP") or None,
-                                pipe_name=self.pipe_name)
+                                pipe_name=self.pipe_name,
+                                lossless_port=int(self.cfg.get("LOSSLESS_STREAM_PORT") or 0)
+                                or None)
         self.renderer.start()
 
     def set_renderer_name(self, name: Any) -> dict:

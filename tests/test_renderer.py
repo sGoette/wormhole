@@ -40,6 +40,34 @@ class SpecTest(unittest.TestCase):
                 self.assertTrue(hasattr(r, f"_{service}_{action}"), f"{service}.{action}")
 
 
+class LosslessAlternativeTest(unittest.TestCase):
+    PUSHED = "http://192.0.2.10:8145/stream.mp3"
+
+    def test_flac_on_the_other_port_wins(self):
+        asked = []
+
+        def probe(url):
+            asked.append(url)
+            return "audio/x-flac"
+        self.assertEqual(rd.lossless_alternative(self.PUSHED, 8146, probe),
+                         "http://192.0.2.10:8146/")
+        self.assertEqual(asked, ["http://192.0.2.10:8146/"])
+
+    def test_otherwise_none(self):
+        self.assertIsNone(rd.lossless_alternative(self.PUSHED, 8146, lambda u: "audio/mpeg"))
+        self.assertIsNone(rd.lossless_alternative(self.PUSHED, 8146, lambda u: ""))  # no answer
+
+    def test_not_asked_when_off_or_pointless(self):
+        def probe(url):
+            raise AssertionError("must not probe")
+        self.assertIsNone(rd.lossless_alternative(self.PUSHED, None, probe))
+        self.assertIsNone(rd.lossless_alternative("http://192.0.2.10:8146/", 8146, probe))
+        self.assertIsNone(rd.lossless_alternative("https://192.0.2.10/s.mp3", 8146, probe))
+
+    def test_content_type_of_nothing_is_empty(self):
+        self.assertEqual(rd.content_type("http://127.0.0.1:9/", timeout=0.5), "")
+
+
 class SSDPTest(unittest.TestCase):
     UDN = "uuid:1234"
 
@@ -192,6 +220,20 @@ class RendererTest(unittest.TestCase):
         ft.stop(self.r)
         self.assertEqual(self.state(), "STOPPED")
         self.assertTrue(FakeFeeder.instances[-1].stopping)
+
+    def test_plays_the_lossless_stream_when_offered(self):
+        renderer = self.service.renderer
+        renderer.lossless_port = 8146
+        renderer.probe = lambda url: "audio/x-flac" if url.endswith(":8146/") else ""
+        with self.assertLogs("wormhole.renderer", "INFO") as logs:
+            ft.set_uri(self.r, URI, ft.didl_lite("tone", URI, "audio/mpeg"))
+            ft.play(self.r)
+        self.assertEqual(FakeFeeder.instances[-1].source, "http://192.0.2.10:8146/")
+        self.assertTrue(any("lossless stream" in line for line in logs.output))
+        self.assertEqual(renderer.status()["uri"], URI)  # what the turntable sent
+        renderer.probe = lambda url: ""  # gone (e.g. firmware update): the pushed stream
+        renderer.restart_stream()
+        self.assertEqual(FakeFeeder.instances[-1].source, URI)
 
     def test_restart_stream_only_while_playing(self):
         renderer = self.service.renderer

@@ -61,7 +61,9 @@ class FakeRendererService:
 
     instances = []
 
-    def __init__(self, name, port, feed_control, owntone, host_ip=None, pipe_name=""):
+    def __init__(self, name, port, feed_control, owntone, host_ip=None, pipe_name="",
+                 lossless_port=None):
+        self.lossless_port = lossless_port
         self.renderer = types.SimpleNamespace(
             name=name, status=lambda: {"name": self.renderer.name, "state": "STOPPED",
                                        "uri": "", "controller": ""})
@@ -154,6 +156,11 @@ class WebTest(unittest.TestCase):
         self.assertEqual(self.fake.requests[-2], ("PUT", "/api/outputs/111", {"selected": True}))
         self.assertEqual(self.fake.requests[-1], ("PUT", "/api/outputs/111", {"volume": 42}))
 
+    def test_lossless_port_reaches_the_renderer(self):
+        self.app.cfg["LOSSLESS_STREAM_PORT"] = "8146"
+        self.app.start_renderer("Wormhole")
+        self.assertEqual(FakeRendererService.instances[-1].lossless_port, 8146)
+
     def test_player_bar_proxied_to_owntone(self):
         self.assertEqual(self.call("PUT", "/api/player/volume", {"volume": 30})[0], 200)
         self.assertEqual(self.fake.requests[-1][:2], ("PUT", "/api/player/volume?volume=30"))
@@ -241,6 +248,7 @@ class WebTest(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertEqual(body["name"], "Living Room")
         self.assertTrue(FakeRendererService.instances[-1].started)
+        self.assertIsNone(FakeRendererService.instances[-1].lossless_port)  # not configured
         self.assertEqual(json.loads(self.settings_file.read_text()),
                          {"renderer_name": "Living Room"})
         self.assertEqual(self.call("GET", "/api/state")[1]["renderer"]["name"], "Living Room")
