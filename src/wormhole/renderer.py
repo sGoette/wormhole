@@ -388,13 +388,22 @@ class Renderer:
         return {"name": self.name, "state": self.transport_state(), "uri": self.uri,
                 "controller": self.controller}
 
-    def restart_stream(self) -> bool:
-        """Reconnect to the live stream while PLAYING (resume after a pause without the audio
-        that queued up in the meantime). False if nothing is playing from UPnP."""
-        if self.transport_state() != "PLAYING" or not self.uri:
+    def play_stream(self) -> bool:
+        """Play button of the web UI: (re)connect to the turntable's live stream, also after a
+        Stop or pause from the UI. Reconnecting skips the audio that queued up meanwhile.
+        False if the turntable never sent a stream."""
+        if not self.uri:
             return False
         self._start_feed()
         return True
+
+    def stop_stream(self) -> bool:
+        """Stop button of the web UI, like a UPnP Stop: feed and OwnTone stop (the Apple TV
+        leaves its now-playing screen), and the turntable gets a STOPPED event. A later Play
+        from the turntable starts it again as usual. True if a stream was playing."""
+        was_playing = self.feed.owned_by("upnp")
+        self._AVTransport_Stop({})
+        return was_playing
 
 
     def _set_state(self, state: str) -> None:

@@ -193,14 +193,22 @@ class App:
         self.owntone.set_master_volume(volume)
 
     def player_play(self) -> None:
-        """While the turntable streams, reconnect to the live stream: a plain OwnTone play
-        would first play what queued up during the pause, and stay that far behind."""
-        if self.renderer is not None and self.renderer.renderer.restart_stream():
+        """(Re)connect to the turntable's live stream: a plain OwnTone play would first play
+        what queued up during a pause, and stay that far behind; after a Stop there is no
+        stream at all."""
+        if self.renderer is not None and self.renderer.renderer.play_stream():
             return
         self.owntone.play()
 
     def player_pause(self) -> None:
         self.owntone.pause()
+
+    def player_stop(self) -> None:
+        """The turntable keeps streaming (silence) after the record ends, until its 20-minute
+        sleep timer: Stop ends playback here, so the speakers and the Apple TV let go."""
+        if self.renderer is not None and self.renderer.renderer.stop_stream():
+            return
+        self.owntone.stop()  # something else was playing: stop it and clear the queue
 
     def pair_output(self, output_id: str, pin: str) -> None:
         """PIN pairing as OwnTone expects it (maintainer, issue #1967): switching on started
@@ -242,6 +250,7 @@ def routes(app: App) -> Router:
     r.add("PUT", "/api/player/volume", lambda req: app.player_volume(req.json()))
     r.add("POST", "/api/player/play", lambda req: app.player_play())
     r.add("POST", "/api/player/pause", lambda req: app.player_pause())
+    r.add("POST", "/api/player/stop", lambda req: app.player_stop())
     r.add("PUT", "/api/renderer", lambda req: app.set_renderer_name(req.json().get("name")))
     r.add("GET", "/api/update", lambda req: app.update_status())
     r.add("POST", "/api/update/check", lambda req: dict(app.check_update(), ok=True))

@@ -22,11 +22,10 @@ async function sendVolume() {
   refresh();
 }
 
-async function toggle() {
-  const btn = $("pl-toggle");
+async function send(path, btn) {
   btn.disabled = true;
   try {
-    await call("POST", playing ? "/api/player/pause" : "/api/player/play");
+    await call("POST", path);
     flash("");
   } catch (e) { flash(e.message, true); }
   refresh();
@@ -46,7 +45,11 @@ export function init() {
     sendVolume();
     dragging = false;
   };
-  $("pl-toggle").onclick = toggle;
+  $("pl-toggle").onclick = () => send(playing ? "/api/player/pause" : "/api/player/play",
+                                      $("pl-toggle"));
+  // The turntable keeps streaming after the record ends (until its sleep timer): Stop lets
+  // the speakers and the Apple TV go. Play, or a new start on the turntable, resumes.
+  $("pl-stop").onclick = () => send("/api/player/stop", $("pl-stop"));
 }
 
 // `s` is /api/state: renderer (the turntable's stream) and player (OwnTone).
@@ -56,19 +59,22 @@ export function render(s) {
   const state = p.state || "stop";
   playing = state === "play";
 
-  document.querySelector(".player").classList.toggle("idle", !streaming && state === "stop");
-  $("pl-source").textContent = streaming ? r.source || "Turntable"
+  const stopped = !streaming && state === "stop";
+  const resumable = !!r.uri;  // the turntable sent a stream once: Play reconnects to it
+  document.querySelector(".player").classList.toggle("idle", stopped);
+  $("pl-source").textContent = streaming || (stopped && resumable) ? r.source || "Turntable"
     : state !== "stop" ? "OwnTone" : "Nothing playing";
   // From what ffmpeg actually decodes, not from what the turntable announces.
   $("pl-lossless").hidden = !(streaming && s.input && s.input.lossless);
-  $("pl-state").textContent = !streaming && state === "stop"
-    ? "Start a record in the turntable app"
+  $("pl-state").textContent = stopped
+    ? resumable ? "Stopped" : "Start a record in the turntable app"
     : playing ? "Playing" : state === "pause" ? "Paused" : "Starting…";
 
   const btn = $("pl-toggle");
   btn.classList.toggle("playing", playing);
   btn.setAttribute("aria-label", playing ? "Pause" : "Play");
-  btn.disabled = !streaming && state === "stop";
+  btn.disabled = stopped && !resumable;
+  $("pl-stop").disabled = stopped;
 
   $("pl-volume").disabled = !!s.error;
   if (!dragging && typeof p.volume === "number") showVolume(p.volume);

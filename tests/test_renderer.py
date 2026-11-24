@@ -232,17 +232,34 @@ class RendererTest(unittest.TestCase):
         self.assertTrue(any("lossless stream" in line for line in logs.output))
         self.assertEqual(renderer.status()["uri"], URI)  # what the turntable sent
         renderer.probe = lambda url: ""  # gone (e.g. firmware update): the pushed stream
-        renderer.restart_stream()
+        renderer.play_stream()
         self.assertEqual(FakeFeeder.instances[-1].source, URI)
 
-    def test_restart_stream_only_while_playing(self):
+    def test_play_stream_reconnects_and_needs_a_uri(self):
         renderer = self.service.renderer
-        self.assertFalse(renderer.restart_stream())
+        self.assertFalse(renderer.play_stream())  # the turntable never sent a stream
         ft.set_uri(self.r, URI, "")
         ft.play(self.r)
-        self.assertTrue(renderer.restart_stream())
+        self.assertTrue(renderer.play_stream())
         self.assertEqual(len(FakeFeeder.instances), 2)
         self.assertTrue(FakeFeeder.instances[0].stopping)
+        self.assertEqual(self.state(), "PLAYING")
+
+    def test_stop_from_the_ui_then_play_again(self):
+        renderer = self.service.renderer
+        self.assertFalse(renderer.stop_stream())  # nothing playing
+        ft.set_uri(self.r, URI, "")
+        ft.play(self.r)
+        self.assertTrue(renderer.stop_stream())
+        self.assertEqual(self.state(), "STOPPED")  # what the turntable sees
+        self.assertTrue(FakeFeeder.instances[-1].stopping)
+        self.assertEqual([r[:2] for r in self.owntone_fake.requests[-2:]],
+                         [("PUT", "/api/player/stop"), ("PUT", "/api/queue/clear")])
+        self.assertTrue(renderer.play_stream())  # Play in the UI: same stream again
+        self.assertEqual(self.state(), "PLAYING")
+        self.assertEqual(FakeFeeder.instances[-1].source, URI)
+        renderer.stop_stream()
+        ft.play(self.r)  # a new Play from the turntable works as always
         self.assertEqual(self.state(), "PLAYING")
 
     def test_rename_is_live_and_a_new_device(self):

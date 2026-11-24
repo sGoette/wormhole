@@ -171,10 +171,24 @@ class WebTest(unittest.TestCase):
         for bad in (150, -1, "50", True, None):
             self.assertEqual(self.call("PUT", "/api/player/volume", {"volume": bad})[0], 400)
 
+    def test_stop_without_a_turntable_stream_stops_owntone(self):
+        self.assertEqual(self.call("POST", "/api/player/stop")[0], 200)
+        self.assertEqual([r[:2] for r in self.fake.requests[-2:]],
+                         [("PUT", "/api/player/stop"), ("PUT", "/api/queue/clear")])
+
+    def test_stop_ends_the_turntable_stream(self):
+        stopped = []
+        self.app.renderer = types.SimpleNamespace(renderer=types.SimpleNamespace(
+            stop_stream=lambda: stopped.append(1) or True))
+        before = len(self.fake.requests)
+        self.assertEqual(self.call("POST", "/api/player/stop")[0], 200)
+        self.assertEqual(stopped, [1])
+        self.assertEqual(len(self.fake.requests), before)  # the renderer stopped OwnTone
+
     def test_play_reconnects_the_turntable_stream(self):
         restarted = []
         self.app.renderer = types.SimpleNamespace(renderer=types.SimpleNamespace(
-            restart_stream=lambda: restarted.append(1) or True))
+            play_stream=lambda: restarted.append(1) or True))
         before = len(self.fake.requests)
         self.assertEqual(self.call("POST", "/api/player/play")[0], 200)
         self.assertEqual(restarted, [1])
