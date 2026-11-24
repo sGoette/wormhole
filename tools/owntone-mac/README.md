@@ -1,6 +1,6 @@
 # OwnTone on the Mac (Phase 3)
 
-There is no Homebrew formula for OwnTone, so `build.sh` compiles **OwnTone 29.3** from the
+There is no Homebrew formula for OwnTone, so `build.sh` compiles **OwnTone 29.4** from the
 release tarball into `.local/owntone/` (git-ignored). Only the Homebrew dependencies are
 installed system-wide. The steps follow OwnTone's own macOS CI workflow.
 
@@ -11,7 +11,7 @@ make owntone-run            # terminal 1: OwnTone in the foreground, web UI http
 
 | File | Purpose |
 |---|---|
-| `build.sh` | Homebrew deps, libinotify-kqueue 20240724, OwnTone 29.3 (checksums pinned) |
+| `build.sh` | Homebrew deps, libinotify-kqueue 20240724, OwnTone 29.4 (checksums pinned) |
 | `run.sh` | Renders `config/owntone.conf.in` (shared with the server) from `config/local.env`, creates the pipe, starts OwnTone |
 
 Library = `.local/owntone/library/` (holds the `turntable` named pipe) + `tools/media/`.

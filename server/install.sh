@@ -14,12 +14,12 @@ set -eu
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 ENV_FILE=/etc/wormhole/wormhole.env
 
-# OwnTone's own Debian build: https://github.com/owntone/owntone-debian/releases (dpkg_rev14).
+# OwnTone's own Debian build: https://github.com/owntone/owntone-debian/releases (dpkg_rev15).
 # Not in Debian's repositories. Pinned so a re-run never changes OwnTone by surprise.
-OWNTONE_VERSION="29.3.142.gitd6fb3ed-1+trixie"
-OWNTONE_URL="https://github.com/owntone/owntone-debian/releases/download/dpkg_rev14"
-OWNTONE_URL="$OWNTONE_URL/owntone_29.3.142.gitd6fb3ed-1%2Btrixie_amd64.deb"
-OWNTONE_SHA256="76cbe423f78535906bf85396041134c8848f0935216bf3c9642ff6d9e0ac83a2"
+OWNTONE_VERSION="29.4.143.gite2a3915-1+trixie"
+OWNTONE_URL="https://github.com/owntone/owntone-debian/releases/download/dpkg_rev15"
+OWNTONE_URL="$OWNTONE_URL/owntone_29.4.143.gite2a3915-1%2Btrixie_amd64.deb"
+OWNTONE_SHA256="f0893138b48288a95d3ff98182c503abccec109415678ae2640236cb48f51acf"
 
 say() { printf '\n== %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }

@@ -49,7 +49,7 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 | `tools/fake_turntable/` | Mac | T2 W stand-in: `fake_turntable.py` (live MP3/FLAC stream + UPnP control) + `frontend/` (its web UI). |
 | `tools/media/` | Mac | Test audio for the fake turntable (audio files git-ignored). |
 | `tools/make_icons.py` | Mac | Renders all icons and the AirPlay artwork from the two SVG masters with `sips` (re-run after changing a master). |
-| `tools/owntone-mac/` | Mac | Build (`build.sh`) and `run.sh` for OwnTone 29.3 on the Mac. |
+| `tools/owntone-mac/` | Mac | Build (`build.sh`) and `run.sh` for OwnTone 29.4 on the Mac. |
 | `.local/` | Mac | Git-ignored build output + runtime data (`.local/owntone/`: binary, db, log, pipe). |
 | `tests/` | Mac | `unittest` tests, `test_*.py`. |
 | `design/explorations/` | Mac | Icon design rounds (SVG variants, `preview.html`, generator scripts). Not used by the app. |

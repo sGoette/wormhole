@@ -130,21 +130,32 @@ class OwnToneTest(unittest.TestCase):
         self.assertEqual(self.fake.requests[-1][:2], (
             "POST", "/api/queue/items/add?uris=library:track:7&clear=true&playback=start"))
 
-    def test_play_pipe_sets_artwork_before_starting(self):
-        # OwnTone sends artwork only when playback starts, so: add, set artwork, then play
+    def test_play_pipe_sets_now_playing_before_starting(self):
+        # OwnTone sends metadata only when playback starts, so: add, set it, then play
         self.ot.artwork = Path("/srv/wormhole/now playing.jpg")
+        self.ot.title, self.ot.artist = "Turntable", "Kitchen & Co"
         self.ot.play_pipe("turntable")
         self.assertEqual([r[:2] for r in self.fake.requests[-3:]], [
             ("POST", "/api/queue/items/add?uris=library:track:7&clear=true"),
-            ("PUT", "/api/queue/items/42?artwork_url=file:/srv/wormhole/now%20playing.jpg"),
+            ("PUT", "/api/queue/items/42?artwork_url=file:/srv/wormhole/now%20playing.jpg"
+                    "&title=Turntable&artist=Kitchen%20%26%20Co"),
             ("PUT", "/api/player/play")])
 
-    def test_play_pipe_plays_even_if_artwork_fails(self):
-        self.ot.artwork = Path("/srv/art.jpg")
+    def test_play_pipe_title_only(self):
+        self.ot.title = "Turntable"
+        self.ot.play_pipe("turntable")
+        self.assertEqual(self.fake.requests[-2][:2],
+                         ("PUT", "/api/queue/items/42?title=Turntable"))
 
-        def fail(item_id, image):
-            raise OwnToneError("PUT /api/queue/items/42: HTTP 400")
-        self.ot.set_artwork = fail
+    def test_play_pipe_plays_even_if_metadata_fails(self):
+        self.ot.artwork = Path("/srv/art.jpg")
+        real = self.ot._request
+
+        def request(method, path, body=None):
+            if path.startswith("/api/queue/items/42"):
+                raise OwnToneError("PUT /api/queue/items/42: HTTP 400")
+            return real(method, path, body)
+        self.ot._request = request
         with self.assertLogs("wormhole.owntone", "WARNING"):
             self.ot.play_pipe("turntable")
         self.assertEqual(self.fake.requests[-1][:2], ("PUT", "/api/player/play"))

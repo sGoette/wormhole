@@ -110,6 +110,8 @@ class RelayTest(unittest.TestCase):
                                "sys.stdout.flush(); time.sleep(5)", reader=False)
         time.sleep(0.4)
         self.assertEqual(f.bytes_written, 0)
+        # OwnTone (pipe_autostart off) opens the pipe only after it was told to play
+        self.assertEqual(self.events, [("first", 0)])
         f.stop()
         thread.join(3)
         self.assertFalse(thread.is_alive())

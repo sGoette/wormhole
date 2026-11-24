@@ -32,11 +32,15 @@ def cmd_info(cfg: Dict[str, str], _args: argparse.Namespace) -> int:
 
 def cmd_feed(cfg: Dict[str, str], args: argparse.Namespace) -> int:
     source = args.input or cfg.get("FEED_INPUT") or feed.TONE
+    pipe = config.path(cfg, "PCM_PIPE")
+    # OwnTone's pipe_autostart is off: start the pipe on the first audio, like the renderer.
+    ot = OwnTone(config.require(cfg, "OWNTONE_URL"))
     feeder = feed.Feeder(
         source=source,
-        pipe=config.path(cfg, "PCM_PIPE"),
+        pipe=pipe,
         rate=int(cfg.get("PIPE_SAMPLE_RATE", "44100")),
         bits=int(cfg.get("PIPE_BITS", "16")),
+        on_first_data=lambda: ot.play_pipe(pipe.name),
     )
     feeder.install_signal_handlers()
     return feeder.run()

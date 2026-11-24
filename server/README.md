@@ -125,16 +125,20 @@ Debian itself: `apt-get update && apt-get upgrade` now and then (as root).
   is attached to the LAN interface (bridged) and that it has an address in your LAN
   (`hostname -I`).
 
-## OwnTone notes (verified 2026-11-13, OwnTone 29.3)
+## OwnTone notes (verified 2026-11-13 with OwnTone 29.3; 29.4 since 2026-11-24)
 
 - Installed from OwnTone's own Debian build (github.com/owntone/owntone-debian, version and
   sha256 pinned in `install.sh`); the stock config is kept as `/etc/owntone.conf.dist`.
-- **HomePods on software 27+** need `user_agent = "AirPlay/999.0.0"` (in the template).
+- **HomePods on software 27+** need `user_agent = "AirPlay/999.0.0"` (template, section
+  `airplay_shared`; OwnTone 29.4's default, in 29.3 it was in `general`).
   Otherwise they answer `403 Forbidden` to `GET /info` (OwnTone issue #2042).
-- **Pipe autostart is unreliable after a stop.** `src/wormhole/owntone.py`: `stop()` also
-  clears the queue; the feeder starts the pipe explicitly (`play_pipe()`) when the **first
-  audio** arrives. Starting earlier left the HomePods silent with FLAC (~3 s to first data,
-  longer than OwnTone's 2250 ms start buffer).
+- **Pipe autostart is off** (`pipe_autostart = false`). wormhole starts the pipe itself
+  (`play_pipe()` in `src/wormhole/owntone.py`) when the **first audio** arrives; starting
+  earlier left the HomePods silent with FLAC (~3 s to first data, longer than OwnTone's
+  2250 ms start buffer). An autostarted queue item had no artwork, title or artist.
+- **A speaker can pause everything** (e.g. an Apple TV falling asleep, seen with 29.3; with
+  29.4's MediaRemote "now playing" it stays awake). Play from Control Center resumes. After a
+  *stop*, nothing restarts the pipe (autostart is off): stop and start the turntable.
 - **PIN devices** (Apple TV): switch on → PIN shown → send the PIN alone → switch on again
   (OwnTone issue #1967). The web UI does this with its *Pair* button.
 - **Local audio output is off** (`audio { type = "disabled" }`): the VM has no sound card, and

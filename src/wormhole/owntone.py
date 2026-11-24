@@ -1,8 +1,8 @@
 """Minimal client for OwnTone's JSON API.
 
-Endpoints and fields follow docs/json-api.md in the OwnTone repo (checked against 29.3):
+Endpoints and fields follow docs/json-api.md in the OwnTone repo (checked against 29.4):
 GET /api/outputs, PUT /api/outputs/set, PUT /api/outputs/{id}, GET /api/player,
-PUT /api/player/{play,pause,stop}, PUT /api/queue/items/{id} (artwork_url).
+PUT /api/player/{play,pause,stop}, PUT /api/queue/items/{id} (artwork_url, title, artist).
 """
 
 import json
@@ -74,10 +74,12 @@ class Output:
 
 
 class OwnTone:
-    def __init__(self, base_url: str, timeout: float = 5.0, artwork: Optional[Path] = None):
+    def __init__(self, base_url: str, timeout: float = 5.0, artwork: Optional[Path] = None,
+                 title: str = "", artist: str = ""):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.artwork = artwork  # "now playing" image for the pipe, as OwnTone sees the path
+        # "Now playing" for the pipe: image (as OwnTone sees the path), title and artist.
+        self.artwork, self.title, self.artist = artwork, title, artist
 
     def _request(self, method: str, path: str, body: Optional[dict] = None) -> Any:
         data = json.dumps(body).encode() if body is not None else None
@@ -151,33 +153,41 @@ class OwnTone:
                            f"(pipes found: {found}); is it inside a library directory?")
 
     def play_pipe(self, name: str) -> None:
-        """Start playing the pipe now, instead of relying on pipe_autostart.
+        """Queue the pipe as a fresh item with our "now playing" info and start it.
 
-        Autostart does not reliably fire again after a stop (OwnTone 29.3, seen on macOS on
-        2026-11-13). Started before data arrives, OwnTone waits (state 'pause') and plays as
-        soon as data flows.
+        wormhole starts the pipe itself; OwnTone's pipe_autostart is off in the config,
+        because an autostarted item has none of our metadata (title = file name, no artwork;
+        seen 2026-11-24 after a record change). Started before data arrives, OwnTone waits
+        (state 'pause') and plays as soon as data flows.
         """
         uri = urllib.parse.quote(self.pipe_uri(name), safe=":")
-        if self.artwork is None:
+        query = self.metadata_query()
+        if not query:
             self._request("POST", f"/api/queue/items/add?uris={uri}&clear=true&playback=start")
             return
-        # OwnTone sends metadata (with artwork) to the speakers once, when playback starts
-        # (player.c, event_play_start), so the artwork goes on the queue item before Play.
+        # OwnTone sends metadata to the speakers when playback starts (player.c,
+        # event_play_start), so it goes on the queue item before Play.
         reply = self._request("POST", f"/api/queue/items/add?uris={uri}&clear=true") or {}
         items = reply.get("items") or []
         if items:
             try:
-                self.set_artwork(items[0]["id"], self.artwork)
+                self._request("PUT", f"/api/queue/items/{items[0]['id']}?{query}")
             except OwnToneError as exc:  # no artwork is no reason to stay silent
-                log.warning("owntone: setting the artwork failed: %s", exc)
+                log.warning("owntone: setting the now playing info failed: %s", exc)
         self.play()
 
-    def set_artwork(self, item_id: Any, image: Path) -> None:
-        """Artwork for a queue item. For pipes, OwnTone 29.3 reads a `file:` artwork_url itself
-        (artwork.c, source "pipe"; needs `artwork_individual = true`) and scales it down to
-        what the device asks for (600x600 for AirPlay)."""
-        url = urllib.parse.quote(f"file:{image}", safe=":/")
-        self._request("PUT", f"/api/queue/items/{item_id}?artwork_url={url}")
+    def metadata_query(self) -> str:
+        """Query for PUT /api/queue/items/{id}. For pipes, OwnTone (29.3, 29.4) reads a
+        `file:` artwork_url itself (artwork.c, source "pipe"; needs
+        `artwork_individual = true`) and scales it to what the device asks for."""
+        params = []
+        if self.artwork is not None:
+            params.append(("artwork_url", f"file:{self.artwork}"))
+        if self.title:
+            params.append(("title", self.title))
+        if self.artist:
+            params.append(("artist", self.artist))
+        return urllib.parse.urlencode(params, quote_via=urllib.parse.quote, safe=":/")
 
     def set_master_volume(self, volume: int) -> None:
         self._request("PUT", f"/api/player/volume?volume={int(volume)}")

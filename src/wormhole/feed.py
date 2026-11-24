@@ -34,6 +34,7 @@ TONE = "tone"
 VALID_RATES = (44100, 48000, 88200, 96000)  # what OwnTone's pipe input accepts
 VALID_BITS = (16, 32)
 CHUNK = 16384  # ~93 ms of 44.1 kHz s16 stereo
+READER_CLOSED = "the reader closed the pipe"
 
 
 def ffmpeg_command(source: str, rate: int, bits: int) -> List[str]:
@@ -124,11 +125,17 @@ class Feeder:
                 ran = time.monotonic() - started
                 detail = " | ".join(errors) or reason
                 self.restarts += 1
-                self.last_error = f"ffmpeg exited with {self.proc.returncode}: {detail}"
-                log.warning("ffmpeg exited with %s after %.0fs: %s",
-                            self.proc.returncode, ran, detail)
-                backoff = self.MIN_BACKOFF if ran > self.HEALTHY_AFTER else min(
-                    backoff * 2, self.MAX_BACKOFF)
+                if reason == READER_CLOSED:
+                    self.last_error = "OwnTone closed the pipe (paused or restarted)"
+                    log.info("%s after %.0fs; reconnecting the stream", self.last_error, ran)
+                else:
+                    self.last_error = f"ffmpeg exited with {self.proc.returncode}: {detail}"
+                    log.warning("ffmpeg exited with %s after %.0fs: %s",
+                                self.proc.returncode, ran, detail)
+                # OwnTone closing the pipe (pause, restart) is no fault of the stream: come
+                # back at once, so the restarted player gets audio without a growing wait.
+                healthy = ran > self.HEALTHY_AFTER or reason == READER_CLOSED
+                backoff = self.MIN_BACKOFF if healthy else min(backoff * 2, self.MAX_BACKOFF)
                 log.info("restarting in %.0fs", backoff)
                 self._wake.wait(backoff)  # returns early on stop()
         finally:
@@ -142,13 +149,15 @@ class Feeder:
             chunk = stdout.read1(CHUNK)
             if not chunk:
                 return "ffmpeg ended its output", first_data_pending
-            if self._fd is None and not self._open_fifo():
-                return "stopped while waiting for a pipe reader", first_data_pending
+            # Start OwnTone first: with pipe_autostart off it opens the pipe for reading only
+            # once playback has started, so waiting for a reader first would wait forever.
             if first_data_pending:
                 first_data_pending = False
                 self._first_data()
+            if self._fd is None and not self._open_fifo():
+                return "stopped while waiting for a pipe reader", first_data_pending
             if not self._write(chunk):
-                return "the reader closed the pipe", first_data_pending
+                return READER_CLOSED, first_data_pending
         return "stopped", first_data_pending
 
     def _first_data(self) -> None:
@@ -170,7 +179,7 @@ class Feeder:
                 if exc.errno != errno.ENXIO:  # ENXIO = no reader yet
                     raise
             if not waiting_logged:
-                log.warning("waiting for a reader on %s (is OwnTone running?)", self.pipe)
+                log.warning("waiting for a reader on %s (OwnTone not playing?)", self.pipe)
                 waiting_logged = True
             self._wake.wait(0.5)
         return False

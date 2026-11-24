@@ -33,7 +33,7 @@ class PinRequired(OwnToneError):
 # Known causes for messages in OwnTone's log -> what to do about them.
 HINTS = [
     ("GET /info", "HomePod software 27 rejects OwnTone's default User-Agent. Set "
-                  'user_agent = "AirPlay/999.0.0" in the general section of owntone.conf '
+                  'user_agent = "AirPlay/999.0.0" in the airplay_shared section of owntone.conf '
                   "(OwnTone issue #2042). If that is set: Apple Home app > Allow Speakers & "
                   "TV Access > Anyone On the Same Network."),
     ("ANNOUNCE request failed", "Apple Home app > Allow Speakers & TV Access > Anyone On the "
@@ -48,7 +48,9 @@ class App:
                  renderer_factory: Optional[Callable[..., Any]] = None):
         self.cfg = cfg
         self.owntone = OwnTone(config.require(cfg, "OWNTONE_URL"), timeout=3,
-                               artwork=config.optional_path(cfg, "NOW_PLAYING_ARTWORK"))
+                               artwork=config.optional_path(cfg, "NOW_PLAYING_ARTWORK"),
+                               title=cfg.get("NOW_PLAYING_TITLE", ""),
+                               artist=cfg.get("NOW_PLAYING_ARTIST", ""))
         self.feed = feed_control or FeedControl(cfg)
         self.owntone_log = config.path(cfg, "OWNTONE_LOG") if cfg.get("OWNTONE_LOG") else None
         self.settings = Settings(config.path(cfg, "SETTINGS_FILE")

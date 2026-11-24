@@ -1,7 +1,7 @@
 # OwnTone config for wormhole. Rendered by `wormhole owntone-config` (src/wormhole/owntoneconf.py)
 # for the Mac (tools/owntone-mac/run.sh) and the server (server/install.sh).
-# Edit this template, not a generated file. Every key was checked against OwnTone 29.3
-# src/conffile.c; OwnTone's defaults are left out.
+# Edit this template, not a generated file. Every key was checked against OwnTone 29.4
+# src/conffile.c; OwnTone's defaults are left out (except where a comment says why).
 
 general {
 	uid = "@USER@"
@@ -10,11 +10,17 @@ general {
 	logfile = "@LOGFILE@"
 	# fatal, log, warning, info, debug, spam
 	loglevel = @LOGLEVEL@
+}
 
-	# HomePod software 27 answers 403 to OwnTone 29.3's default User-Agent ("owntone/29.3").
+# Settings for all AirPlay speakers (OwnTone 29.4 src/conffile.c, sec_airplay_shared).
+airplay_shared {
+	# HomePod software 27 answers 403 to OwnTone's own User-Agent ("owntone/29.3").
 	# Verified 2026-11-13 on a HomePod: 403 with the default, 200 with this value.
-	# OwnTone issue #2042; the default changed in OwnTone master after 29.3.
+	# OwnTone issue #2042. Since 29.4 this is the default and it lives here; in 29.3 it was
+	# general.user_agent. Kept explicit so the fix stays if the default changes.
 	user_agent = "AirPlay/999.0.0"
+	# mediaremote (default true, new in 29.4) sends "now playing" (title, artwork, state)
+	# the way an iPhone does to receivers that support it (HomePod, Apple TV).
 }
 
 library {
@@ -25,24 +31,25 @@ library {
 	# OwnTone's defaults plus .md (tools/media/README.md is not audio).
 	filetypes_ignore = { ".db", ".ini", ".db-journal", ".pdf", ".metadata", ".md" }
 
-	# Start playback when data arrives in a named pipe in the library. wormhole also starts the
-	# pipe explicitly (autostart does not fire again after a stop), so this is only a fallback.
-	pipe_autostart = true
+	# Off: wormhole starts the pipe itself (play_pipe, on the first audio). An autostarted
+	# queue item has none of wormhole's "now playing" info: title = file name, no artist,
+	# no artwork (seen 2026-11-24 after a record change).
+	pipe_autostart = false
 	# Must match what `wormhole feed` writes (PIPE_SAMPLE_RATE / PIPE_BITS in the env file).
 	# OwnTone accepts 44100, 48000, 88200, 96000 and 16 or 32 bits; always 2 channels.
 	pipe_sample_rate = @PIPE_SAMPLE_RATE@
 	pipe_bits_per_sample = @PIPE_BITS@
 
 	# Per-track artwork. wormhole sets the pipe's "now playing" image on its queue item
-	# (artwork_url = file:..., NOW_PLAYING_ARTWORK). OwnTone 29.3 src/artwork.c only looks at
+	# (artwork_url = file:..., NOW_PLAYING_ARTWORK). OwnTone 29.4 src/artwork.c only looks at
 	# a track's own artwork when this is on; otherwise it tries the album, and the pipe has none.
 	artwork_individual = true
 }
 
 # OwnTone's own sound output ("Computer", ALSA/PulseAudio). The server VM has no sound card,
 # so the speaker could never be switched on ("laudio: cannot find card '0'"). Only AirPlay
-# speakers are used. Verified in OwnTone 29.3 src/outputs/alsa.c and pulse.c: any type other
-# than "alsa" / "pulseaudio" keeps them from starting.
+# speakers are used. Verified in OwnTone 29.4 src/outputs/alsa.c, pulse.c and pipewire.c:
+# any type other than "alsa" / "pulseaudio" / "pipewire" keeps them from starting.
 audio {
 	type = "disabled"
 }
