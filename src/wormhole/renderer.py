@@ -254,7 +254,7 @@ def description_xml(name: str, udn: str) -> bytes:
     # UPnP device description: mimetype, width, height, depth and url per icon
     icons = "".join(
         f"<icon><mimetype>image/png</mimetype><width>{s}</width><height>{s}</height>"
-        f"<depth>24</depth><url>/icons/renderer-{s}.png</url></icon>" for s in ICON_SIZES)
+        f"<depth>32</depth><url>/icons/renderer-{s}.png</url></icon>" for s in ICON_SIZES)
     return (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<root xmlns="urn:schemas-upnp-org:device-1-0">'
