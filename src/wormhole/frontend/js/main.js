@@ -3,9 +3,11 @@
 
 import {$, get} from "./api.js";
 import * as player from "./player.js";
+import * as records from "./records.js";
 import * as settings from "./settings.js";
 import * as software from "./software.js";
 import * as speakers from "./speakers.js";
+import * as tabs from "./tabs.js";
 
 const POLL_MS = 1500;
 let busy = false, timer = null;
@@ -19,6 +21,7 @@ async function poll() {
     $("conn").textContent = s.error ? `OwnTone: ${s.error}` : "";
     if (!s.error) speakers.render(s.outputs.filter(o => !o.hidden), s.outputs.length);
     player.render(s);
+    records.render(s);
     settings.render(s);
   } catch (e) {
     $("conn").hidden = false;
@@ -41,8 +44,14 @@ function schedule() {
 speakers.onChange(poll);
 player.onChange(poll);
 player.init();
+records.onChange(poll);
+records.init();
+tabs.init(name => {
+  if (name === "records") records.load();
+  if (name === "settings") { settings.opened(); software.refresh(); }
+});
 settings.onChange(poll);
-settings.init(() => { poll(); software.refresh(); });
+settings.init();
 software.init();
 document.addEventListener("visibilitychange", schedule);
 schedule();

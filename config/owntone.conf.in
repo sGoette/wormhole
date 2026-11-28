@@ -31,10 +31,13 @@ library {
 	# OwnTone's defaults plus .md (tools/media/README.md is not audio).
 	filetypes_ignore = { ".db", ".ini", ".db-journal", ".pdf", ".metadata", ".md" }
 
-	# Off: wormhole starts the pipe itself (play_pipe, on the first audio). An autostarted
-	# queue item has none of wormhole's "now playing" info: title = file name, no artist,
-	# no artwork (seen 2026-11-24 after a record change).
-	pipe_autostart = false
+	# On, although wormhole starts the pipe itself (play_pipe, just before the first audio, so
+	# OwnTone finds it "already playing" and keeps wormhole's "now playing" info). OwnTone 29.4
+	# only reads the pipe's .metadata FIFO (the record chosen in the web UI, mid-stream) with
+	# autostart on: its read event lives in the autostart watcher (inputs/pipe.c,
+	# evbase_pipe; RESULTS.md 2026-11-27). The watcher also keeps the pipe open, so a pause
+	# stays paused instead of the feed restarting.
+	pipe_autostart = true
 	# Must match what `wormhole feed` writes (PIPE_SAMPLE_RATE / PIPE_BITS in the env file).
 	# OwnTone accepts 44100, 48000, 88200, 96000 and 16 or 32 bits; always 2 channels.
 	pipe_sample_rate = @PIPE_SAMPLE_RATE@

@@ -33,7 +33,7 @@ def cmd_info(cfg: Dict[str, str], _args: argparse.Namespace) -> int:
 def cmd_feed(cfg: Dict[str, str], args: argparse.Namespace) -> int:
     source = args.input or cfg.get("FEED_INPUT") or feed.TONE
     pipe = config.path(cfg, "PCM_PIPE")
-    # OwnTone's pipe_autostart is off: start the pipe on the first audio, like the renderer.
+    # Start the pipe on the first audio, like the renderer (its queue item has the info).
     ot = OwnTone(config.require(cfg, "OWNTONE_URL"))
     feeder = feed.Feeder(
         source=source,
@@ -123,6 +123,29 @@ def cmd_owntone(cfg: Dict[str, str], args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_records(cfg: Dict[str, str], args: argparse.Namespace) -> int:
+    from . import covers
+    from .records import Records
+    try:
+        if args.action == "list":
+            for r in Records(config.path(cfg, "RECORDS_DIR")).all():
+                cover = "cover" if r.cover else "no cover"
+                print(f"{r.id:>4}  {r.artist} - {r.title} ({r.year or '?'}, {cover})")
+            return 0
+        sources = covers.configured(cfg)
+        name = args.source or next(iter(sources), "")
+        if name not in sources:
+            print(f"error: unknown source {name!r} (COVER_SOURCES: {', '.join(sources)})",
+                  file=sys.stderr)
+            return 1
+        for a in sources[name].search(args.album, args.artist or ""):
+            print(f"{a.ref:<36}  {a.artist} - {a.title} ({a.year or '?'}, {a.kind})")
+    except (covers.CoverError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wormhole")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -151,6 +174,15 @@ def build_parser() -> argparse.ArgumentParser:
     upd = sub.add_parser("update", help="update this checkout from GitHub")
     upd.add_argument("action", choices=["check", "apply", "rollback"])
     upd.set_defaults(func=cmd_update)
+
+    rec = sub.add_parser("records", help="record library and cover sources")
+    rec.set_defaults(func=cmd_records)
+    ract = rec.add_subparsers(dest="action", required=True)
+    ract.add_parser("list", help="records in RECORDS_DIR")
+    find = ract.add_parser("search", help="search albums at a cover source")
+    find.add_argument("album")
+    find.add_argument("--artist")
+    find.add_argument("--source", help="one of COVER_SOURCES (default: the first)")
 
     ot = sub.add_parser("owntone", help="control OwnTone (speakers, player)")
     ot.set_defaults(func=cmd_owntone)

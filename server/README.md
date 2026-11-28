@@ -119,6 +119,11 @@ Debian itself: `apt-get update && apt-get upgrade` now and then (as root).
   set in the web UI is kept in `/var/lib/wormhole/settings.json` and wins over
   `RENDERER_NAME`. Pipe or OwnTone keys (`PCM_PIPE`, `PIPE_*`, `OWNTONE_URL`, `LOG_LEVEL`):
   re-run `install.sh` instead.
+- **Record library**: `/var/lib/wormhole/records/` (`records.db` + `covers/`, setting
+  `RECORDS_DIR`). Outside `/opt/wormhole`, so reinstalling or updating keeps it. Backup: copy
+  the folder (e.g. `tar czf records.tgz -C /var/lib/wormhole records`). Covers come from
+  `COVER_SOURCES` (MusicBrainz, Apple's iTunes Search API); `wormhole records search ALBUM
+  --artist A --source itunes` tries a source from the console.
 - Logs: `journalctl -u wormhole -f` · OwnTone: `/var/log/owntone.log`
 - Status: `systemctl status owntone wormhole` · `/opt/wormhole/bin/wormhole info`
 - "Wormhole" not visible in the turntable app, or no HomePods listed: check that the VM's NIC
@@ -132,13 +137,18 @@ Debian itself: `apt-get update && apt-get upgrade` now and then (as root).
 - **HomePods on software 27+** need `user_agent = "AirPlay/999.0.0"` (template, section
   `airplay_shared`; OwnTone 29.4's default, in 29.3 it was in `general`).
   Otherwise they answer `403 Forbidden` to `GET /info` (OwnTone issue #2042).
-- **Pipe autostart is off** (`pipe_autostart = false`). wormhole starts the pipe itself
-  (`play_pipe()` in `src/wormhole/owntone.py`) when the **first audio** arrives; starting
-  earlier left the HomePods silent with FLAC (~3 s to first data, longer than OwnTone's
-  2250 ms start buffer). An autostarted queue item had no artwork, title or artist.
+- **wormhole starts the pipe itself** (`play_pipe()` in `src/wormhole/owntone.py`) when the
+  **first audio** arrives; starting earlier left the HomePods silent with FLAC (~3 s to first
+  data, longer than OwnTone's 2250 ms start buffer). Its queue item carries the "now playing"
+  info; one autostarted by OwnTone has none (title = file name, no artwork).
+- **Pipe autostart is on** all the same (`pipe_autostart = true`, since 2026-11-27): OwnTone
+  29.4 reads the pipe's `.metadata` FIFO only then. wormhole writes the record chosen in the
+  Records tab there (title, artist, cover), and the speakers and the Apple TV show it without
+  a break in the music. OwnTone finds wormhole's pipe "already playing" and leaves it alone.
 - **A speaker can pause everything** (e.g. an Apple TV falling asleep, seen with 29.3; with
-  29.4's MediaRemote "now playing" it stays awake). Play from Control Center resumes. After a
-  *stop*, nothing restarts the pipe (autostart is off): stop and start the turntable.
+  29.4's MediaRemote "now playing" it stays awake). Play in the web UI or Control Center
+  resumes. After a *stop* from a speaker, OwnTone restarts the pipe on its own, as "turntable"
+  without cover: Play in the web UI starts it again with the record's info.
 - **Lossless from the turntable** (`LOSSLESS_STREAM_PORT=8146`): the Pro-Ject T2 W pushes MP3
   to every renderer and FLAC only to a list of brands, but serves FLAC 24 bit / 48 kHz on port
   8146 to anyone (undocumented). The renderer plays that instead when it answers as FLAC, else

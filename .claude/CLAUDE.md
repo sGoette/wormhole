@@ -28,16 +28,19 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 |---|---|---|
 | `src/wormhole/` | Mac + server | All code that runs on the server. |
 | `src/wormhole/__main__.py` | Mac + server | CLI: one subcommand per feature (`web`, `feed`, `owntone`, `update`, …). |
+| `src/wormhole/covers.py` | Mac + server | Album search + cover download, interchangeable sources (`COVER_SOURCES`: MusicBrainz/Cover Art Archive, iTunes); a new source = one class in `SOURCES`. |
 | `src/wormhole/config.py` | Mac + server | `KEY=VALUE` env loader; env vars override; relative paths → repo root. |
 | `src/wormhole/feed.py` | Mac + server | Input → ffmpeg → relay into OwnTone's pipe; starts OwnTone on first audio; input format (codec, lossless) from ffmpeg's log; `FeedControl` (shared by web UI and renderer). |
 | `src/wormhole/httpserver.py` | Mac + server | Small HTTP server: `Router` (`PUT /api/outputs/{id}`), `StaticFiles` (ETag, no path escape), JSON errors. |
 | `src/wormhole/owntone.py` | Mac + server | OwnTone JSON API client; `wormhole owntone outputs/select/status/…`. |
 | `src/wormhole/owntoneconf.py` | Mac + server | Renders `config/owntone.conf.in` (`wormhole owntone-config`). |
+| `src/wormhole/pipemeta.py` | Mac + server | Mid-stream "now playing" (title, artist, cover) through OwnTone's `<pipe>.metadata` FIFO (Shairport XML items; needs `pipe_autostart = true`). |
+| `src/wormhole/records.py` | Mac + server | Record library in `RECORDS_DIR` (outside the checkout): SQLite `records.db` + `covers/`. |
 | `src/wormhole/renderer.py` | Mac + server | Own UPnP MediaRenderer (SSDP, AVTransport, RC, CM, GENA); Play → shared feed; live rename (new UDN). |
 | `src/wormhole/settings.py` | Mac + server | Settings changed in the web UI (renderer name, hidden speakers), JSON in `SETTINGS_FILE`; wins over the env file. |
 | `src/wormhole/update.py` | Mac + server | git-based updates: check / fast-forward / rollback (`wormhole update`, web UI). |
 | `src/wormhole/web.py` | Mac + server | `wormhole web`: the JSON API (`routes()`), serves `frontend/`; starts/renames the renderer; re-execs itself after updates. |
-| `src/wormhole/frontend/` | browser | Web UI (Home Screen web app): `index.html`, `manifest.webmanifest`, `favicon.ico`, `css/style.css`, `icons/` (masters `wormhole-dark.svg` / `wormhole-light.svg` plus the files rendered from them: favicons, Home Screen, renderer icons, `now-playing.jpg`), `js/` (ES modules: `api`, `speakers`, `player`, `settings`, `software`, `main`). |
+| `src/wormhole/frontend/` | browser | Web UI (Home Screen web app): `index.html`, `manifest.webmanifest`, `favicon.ico`, `css/style.css`, `icons/` (masters `wormhole-dark.svg` / `wormhole-light.svg` plus the files rendered from them: favicons, header logos, Home Screen, renderer icons, `now-playing.jpg`), `js/` (ES modules: `api`, `tabs`, `speakers`, `records`, `player`, `settings`, `software`, `main`). |
 | `bin/wormhole` | Mac + server | POSIX sh launcher; sets `PYTHONPATH`; config `$WORMHOLE_ENV` → `/etc/wormhole/wormhole.env` → `config/local.env`. |
 | `config/local.env` | Mac | Mac settings. |
 | `config/owntone.conf.in` | both | OwnTone config template (HomePod User-Agent fix, pipe settings, local audio off). |
@@ -60,7 +63,8 @@ working on it. Test outcomes go in [../RESULTS.md](../RESULTS.md).
 
 On the server: code in `/opt/wormhole` (git clone owned by user `wormhole`), settings in
 `/etc/wormhole/wormhole.env`, OwnTone config `/etc/owntone.conf` (rendered), pipe
-`/var/lib/wormhole/library/turntable`, services `owntone` + `wormhole` (systemd).
+`/var/lib/wormhole/library/turntable` (+ `turntable.metadata`), record library
+`/var/lib/wormhole/records`, services `owntone` + `wormhole` (systemd).
 Changes under `server/` or to `config/owntone.conf.in` need `install.sh` re-run by the user;
 the update panel detects and says so. A re-run adds keys that are new in
 `server/wormhole.env.example` to `/etc/wormhole/wormhole.env` (existing values stay).
@@ -91,8 +95,8 @@ When adding a directory or a new kind of file, update this table and the README 
 - Plain HTML, CSS and JavaScript: no build step, no frameworks, no CDN (the server has no
   internet guarantee and the UI must work offline on the LAN).
 - wormhole's JS is ES modules, one per part of the page, sharing `js/api.js` (`call`, `get`,
-  `flash`). The main view shows only the speakers and the player bar (source, play/pause,
-  master volume); everything else goes in the settings overlay.
+  `flash`). The page has tabs (Speakers, Records, Settings) under the player bar (record or
+  source, play/pause/stop, master volume); anything else goes in the Settings tab.
   API calls only through `call()`; every `/api/...` path used must exist in `web.routes()`
   (a test checks this).
 - Markup in `index.html` (repeated rows as `<template>`), styles in CSS (no inline `style=`).
@@ -100,9 +104,10 @@ When adding a directory or a new kind of file, update this table and the README 
   `innerHTML`, for anything that comes from the API or a device.
 - Phone first (Home Screen app on iPhone): touch targets ≥ 44 px, inputs ≥ 16 px font (else
   iOS zooms), safe-area insets, light and dark palette; check at 390 px and at desktop width.
-- Colours from the logo, no gradients: blue `--blue` (#009dff) for filled things that need
-  colour (switches, sliders, buttons; dark text/icons on it), magenta `--pink` (#db006e) for
-  borders. Never put the two next to each other (complementary, contrast only 1.7:1).
+- Black and white, so the album covers carry the colour: white/black page, filled controls in
+  `--fg` with `--on-fg` on them (inverted in dark mode), outlines in `--fg`. The only UI colour
+  is `--switch` (#009dff, the logo's blue) on toggle switches; `--err` for error text. The
+  player bar is tinted by the playing cover (blurred). The header logo is shown in greyscale.
 
 ### Shell (`bin/`, `server/`, `scripts/`, `tools/owntone-mac/`)
 - POSIX `#!/bin/sh`: must run with Debian's `dash` and macOS `sh`. No bashisms (`[[ ]]`,
@@ -129,5 +134,6 @@ make turntable [TT_ARGS="--list"] | make web | make feed INPUT=…
 make owntone-build | make owntone-run
 bin/wormhole owntone outputs | select NAME... [--volume N] | status | stop | pin NAME PIN
 bin/wormhole update check | apply | rollback
+bin/wormhole records list | search ALBUM [--artist A] [--source itunes]
 bin/wormhole owntone-config --user U --data-dir D --logfile L [--dir EXTRA] [-o FILE]
 ```

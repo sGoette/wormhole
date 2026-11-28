@@ -1,6 +1,7 @@
 // Software section of the settings: version, updates from GitHub, roll back (update.py).
 
 import {$, call, get} from "./api.js";
+import * as tabs from "./tabs.js";
 
 const BUTTONS = ["u-check", "u-apply", "u-rollback"];
 const NOTE_KEY = "updateNote";  // survives the reload after an update
@@ -99,7 +100,7 @@ export function init() {
   if (note) {
     // Just updated: show the result where the update was started.
     setState(note, "good");
-    $("settings").showModal();
+    tabs.show("settings");
   }
   refresh();
 }

@@ -9,8 +9,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Wormhole">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#161615" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="/manifest.webmanifest">
   <!-- iOS has no dark/light variant for web app icons: the dark one is used -->
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -24,40 +24,83 @@
 </head>
 <body>
 <header class="bar">
-  <button id="open-settings" class="icon-btn" aria-label="Settings" title="Settings">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm7.43-2.53
-        c.04-.32.07-.64.07-.97s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46
-        a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65
-        A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.58-1.69.98
-        l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65
-        c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46
-        c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42
-        h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1
-        c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65Z"/></svg>
-  </button>
+  <!-- Transparent renderings of the logo (tools/make_icons.py), shown in greyscale. -->
+  <picture class="logo">
+    <source srcset="/icons/logo-dark-128.png" media="(prefers-color-scheme: dark)">
+    <img src="/icons/logo-light-128.png" alt="" width="40" height="40">
+  </picture>
   <div class="title">
     <h1>Wormhole</h1>
   </div>
-  <!-- The icons' background is the page colour of each theme, so they sit flush. -->
-  <picture class="logo">
-    <source srcset="/icons/wormhole-dark.svg" media="(prefers-color-scheme: dark)">
-    <img src="/icons/wormhole-light.svg" alt="" width="56" height="56">
-  </picture>
 </header>
 
 <main>
   <p id="conn" class="banner err" hidden></p>
   <p id="msg" class="banner" hidden></p>
-  <div id="speakers" class="speakers" aria-live="polite">
-    <p class="empty">Loading speakers&hellip;</p>
-  </div>
+  <section id="tab-speakers" class="panel" role="tabpanel" aria-labelledby="tabbtn-speakers">
+    <div id="speakers" class="speakers" aria-live="polite">
+      <p class="empty">Loading speakers&hellip;</p>
+    </div>
+  </section>
+  <section id="tab-records" class="panel" role="tabpanel" aria-labelledby="tabbtn-records"
+           hidden>
+    <div class="panel-head">
+      <p id="records-count" class="panel-note">Tap the record that's on the turntable.</p>
+      <button id="add-record" class="primary pill">Add record</button>
+    </div>
+    <div id="records" class="records">
+      <p class="empty">Loading records&hellip;</p>
+    </div>
+  </section>
+  <section id="tab-settings" class="panel settings" role="tabpanel"
+           aria-labelledby="tabbtn-settings" hidden>
+    <section class="group">
+      <h3>Renderer</h3>
+      <form id="renderer-form" class="row">
+        <input id="renderer-name" type="text" maxlength="64" autocomplete="off"
+               autocapitalize="words" enterkeyhint="done" aria-label="Renderer name"
+               placeholder="Name in the turntable app" required>
+        <button id="renderer-save" class="primary" disabled>Save</button>
+      </form>
+      <p class="hint">The speaker name the turntable app (UPnP) shows. After renaming, the app
+        lists it as a new device: select it there once more.</p>
+      <p id="renderer-msg" class="hint" hidden></p>
+      <dl class="facts">
+        <dt>State</dt><dd id="r-state">-</dd>
+        <dt>OwnTone</dt><dd id="p-state">-</dd>
+        <dt>Stream</dt><dd id="i-format">-</dd>
+      </dl>
+  </section>
+
+  <section class="group">
+    <h3>Speakers</h3>
+    <div id="visibility" class="visibility"><p class="hint">Loading&hellip;</p></div>
+    <p class="hint">Hidden speakers don't appear in the Speakers tab (hiding one switches it
+      off). Useful for devices that can't play the turntable, such as a Mac.</p>
+  </section>
+
+  <section class="group">
+    <h3>Software</h3>
+    <dl class="facts">
+      <dt>Version</dt><dd id="u-version">-</dd>
+      <dt>Updates</dt><dd id="u-state">not checked yet</dd>
+    </dl>
+    <ul id="u-commits" class="commits"></ul>
+    <p id="u-note" class="hint err" hidden></p>
+    <div class="row wrap">
+      <button id="u-check">Check for updates</button>
+      <button id="u-apply" class="primary" hidden>Update now</button>
+      <button id="u-rollback" hidden>Roll back</button>
+    </div>
+  </section>
+  </section>
 </main>
 
 <!-- Player bar, floating above the bottom edge like an iOS tab bar. -->
 <footer class="player" aria-label="Now playing">
   <div class="player-card">
     <div class="player-top">
+      <img id="pl-cover" class="pl-cover" alt="" hidden>
       <div class="player-info">
         <div class="player-source">
           <span id="pl-source" class="source-name">Nothing playing</span>
@@ -86,56 +129,96 @@
       <span id="pl-vol" class="vol"></span>
     </div>
   </div>
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button id="tabbtn-speakers" class="tab" role="tab" data-tab="speakers"
+            aria-controls="tab-speakers" aria-selected="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm5 3
+          a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm0 5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Zm0 2.5
+          a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/></svg>
+      <span>Speakers</span>
+    </button>
+    <button id="tabbtn-records" class="tab" role="tab" data-tab="records"
+            aria-controls="tab-records" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0
+          0-7Zm0 2.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2ZM12 4.5A7.5 7.5 0 0 0 4.5 12H6a6 6 0 0 1
+          6-6V4.5Z"/></svg>
+      <span>Records</span>
+    </button>
+    <button id="tabbtn-settings" class="tab" role="tab" data-tab="settings"
+            aria-controls="tab-settings" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm7.43-2.53
+        c.04-.32.07-.64.07-.97s-.03-.66-.07-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46
+        a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65
+        A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.58-1.69.98
+        l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65
+        c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46
+        c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42
+        h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1
+        c.23.09.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65Z"/></svg>
+      <span>Settings</span>
+    </button>
+  </nav>
 </footer>
 
-<dialog id="settings" aria-labelledby="settings-title">
+<dialog id="add-dialog" aria-labelledby="add-title">
   <div class="sheet">
     <header class="sheet-head">
-      <h2 id="settings-title">Settings</h2>
-      <button id="close-settings" class="text-btn">Done</button>
+      <h2 id="add-title">Add record</h2>
+      <button id="close-add" class="text-btn">Done</button>
     </header>
-
-    <section class="group">
-      <h3>Renderer</h3>
-      <form id="renderer-form" class="row">
-        <input id="renderer-name" type="text" maxlength="64" autocomplete="off"
-               autocapitalize="words" enterkeyhint="done" aria-label="Renderer name"
-               placeholder="Name in the turntable app" required>
-        <button id="renderer-save" class="primary" disabled>Save</button>
-      </form>
-      <p class="hint">The speaker name the turntable app (UPnP) shows. After renaming, the app
-        lists it as a new device: select it there once more.</p>
-      <p id="renderer-msg" class="hint" hidden></p>
-      <dl class="facts">
-        <dt>State</dt><dd id="r-state">-</dd>
-        <dt>OwnTone</dt><dd id="p-state">-</dd>
-        <dt>Stream</dt><dd id="i-format">-</dd>
-      </dl>
-    </section>
-
-    <section class="group">
-      <h3>Speakers</h3>
-      <div id="visibility" class="visibility"><p class="hint">Loading&hellip;</p></div>
-      <p class="hint">Hidden speakers don't appear on the main screen (hiding one switches it
-        off). Useful for devices that can't play the turntable, such as a Mac.</p>
-    </section>
-
-    <section class="group">
-      <h3>Software</h3>
-      <dl class="facts">
-        <dt>Version</dt><dd id="u-version">-</dd>
-        <dt>Updates</dt><dd id="u-state">not checked yet</dd>
-      </dl>
-      <ul id="u-commits" class="commits"></ul>
-      <p id="u-note" class="hint err" hidden></p>
-      <div class="row wrap">
-        <button id="u-check">Check for updates</button>
-        <button id="u-apply" class="primary" hidden>Update now</button>
-        <button id="u-rollback" hidden>Roll back</button>
+    <form id="search-form" class="group search">
+      <input id="s-album" type="text" maxlength="200" autocomplete="off" enterkeyhint="search"
+             aria-label="Album" placeholder="Album">
+      <input id="s-artist" type="text" maxlength="200" autocomplete="off" enterkeyhint="search"
+             aria-label="Artist" placeholder="Artist">
+      <div class="row">
+        <select id="s-source" aria-label="Search at"></select>
+        <button id="s-go" class="primary">Search</button>
       </div>
-    </section>
+      <p id="s-msg" class="hint" hidden></p>
+    </form>
+    <ul id="results" class="results"></ul>
+    <p class="hint">Not found, or the cover isn't right? <button id="add-manual" class="link-btn"
+      type="button">Add it by hand</button> with the album and artist above, then add a photo
+      of the sleeve.</p>
   </div>
 </dialog>
+
+<dialog id="edit-dialog" aria-labelledby="edit-title">
+  <div class="sheet">
+    <header class="sheet-head">
+      <h2 id="edit-title">Record</h2>
+      <button id="close-edit" class="text-btn">Done</button>
+    </header>
+    <div class="edit-cover">
+      <img id="e-cover" alt="" hidden>
+      <div id="e-nocover" class="no-cover" aria-hidden="true"></div>
+    </div>
+    <form id="edit-form" class="group search">
+      <input id="e-title" type="text" maxlength="200" autocomplete="off" aria-label="Album"
+             placeholder="Album" required>
+      <input id="e-artist" type="text" maxlength="200" autocomplete="off" aria-label="Artist"
+             placeholder="Artist">
+      <input id="e-year" type="text" inputmode="numeric" maxlength="10" autocomplete="off"
+             aria-label="Year" placeholder="Year">
+      <div class="row wrap">
+        <button id="e-save" class="primary">Save</button>
+        <label class="file-btn">
+          <input id="e-photo" type="file" accept="image/*">
+          <span>New cover from a photo</span>
+        </label>
+      </div>
+      <p id="e-msg" class="hint" hidden></p>
+    </form>
+    <div class="row danger-row">
+      <button id="e-delete" class="danger">Remove from library</button>
+    </div>
+  </div>
+</dialog>
+
 
 <template id="visibility-row">
   <label class="vis-row">
@@ -145,6 +228,42 @@
       <span aria-hidden="true"></span>
     </span>
   </label>
+</template>
+
+<template id="record-tile">
+  <article class="rec">
+    <button class="rec-pick">
+      <span class="rec-art">
+        <img alt="" loading="lazy" hidden>
+        <span class="no-cover" aria-hidden="true"></span>
+        <span class="rec-badge badge" hidden>On the turntable</span>
+      </span>
+    </button>
+    <div class="rec-foot">
+      <div class="rec-text">
+        <div class="rec-title"></div>
+        <div class="rec-artist"></div>
+      </div>
+      <button class="rec-edit icon-btn" aria-label="Edit">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/>
+          <circle cx="19" cy="12" r="2"/></svg>
+      </button>
+    </div>
+  </article>
+</template>
+
+<template id="result-row">
+  <li class="result">
+    <span class="result-art">
+      <img alt="" loading="lazy">
+    </span>
+    <div class="result-text">
+      <div class="result-title"></div>
+      <div class="result-meta"></div>
+    </div>
+    <button class="primary result-add">Add</button>
+  </li>
 </template>
 
 <template id="speaker-card">

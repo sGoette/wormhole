@@ -155,10 +155,11 @@ class OwnTone:
     def play_pipe(self, name: str) -> None:
         """Queue the pipe as a fresh item with our "now playing" info and start it.
 
-        wormhole starts the pipe itself; OwnTone's pipe_autostart is off in the config,
-        because an autostarted item has none of our metadata (title = file name, no artwork;
-        seen 2026-11-24 after a record change). Started before data arrives, OwnTone waits
-        (state 'pause') and plays as soon as data flows.
+        wormhole starts the pipe itself, before the first data: an item autostarted by
+        OwnTone has none of our metadata (title = file name, no artwork; seen 2026-11-24),
+        and OwnTone's autostart leaves a pipe that is already playing alone. Started before
+        data arrives, OwnTone waits (state 'pause') and plays as soon as data flows. Later
+        changes (a record chosen in the web UI) go through the metadata pipe (pipemeta.py).
         """
         uri = urllib.parse.quote(self.pipe_uri(name), safe=":")
         query = self.metadata_query()

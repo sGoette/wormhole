@@ -8,7 +8,7 @@ The plan lives in [.claude/STRATEGY.md](.claude/STRATEGY.md); test results go in
 
 | Path | Runs on | Purpose |
 |---|---|---|
-| `src/wormhole/` | Mac **and** server | Python package (stdlib only): renderer, feed, OwnTone client, web API, updates |
+| `src/wormhole/` | Mac **and** server | Python package (stdlib only): renderer, feed, OwnTone client, web API, record library + cover sources, updates |
 | `src/wormhole/frontend/` | browser | Web UI: HTML, CSS, JavaScript modules, icons (no build step) |
 | `bin/wormhole` | Mac **and** server | Launcher: sets `PYTHONPATH`, so no install step is needed |
 | `config/` | both | `local.env` = Mac settings; `owntone.conf.in` = OwnTone config template |

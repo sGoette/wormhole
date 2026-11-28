@@ -175,8 +175,9 @@ class Feeder:
             chunk = stdout.read1(CHUNK)
             if not chunk:
                 return "ffmpeg ended its output", first_data_pending
-            # Start OwnTone first: with pipe_autostart off it opens the pipe for reading only
-            # once playback has started, so waiting for a reader first would wait forever.
+            # Start OwnTone first: its own queue item has wormhole's "now playing" info, and
+            # OwnTone's autostart then finds the pipe already playing. (With pipe_autostart
+            # off there is no reader until playback starts, so waiting first would hang.)
             if first_data_pending:
                 first_data_pending = False
                 self._first_data()

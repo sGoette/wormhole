@@ -1,6 +1,8 @@
 """Web UI API against the fake OwnTone from test_owntone (loopback only, no ffmpeg)."""
 
+import base64
 import json
+import os
 import re
 import struct
 import tempfile
@@ -13,7 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from test_owntone import FakeOwnTone
-from wormhole import config, feed, web
+from wormhole import config, covers, feed, web
+from wormhole.pipemeta import MetadataPipe
 from wormhole.config import ROOT
 
 JS = web.FRONTEND / "js"
@@ -78,7 +81,9 @@ class FakeRendererService:
         self.renderer.name = name
 
 
-class WebTest(unittest.TestCase):
+class WebBase(unittest.TestCase):
+    """The API on a loopback port, with a fake OwnTone, feeder and renderer."""
+
     def setUp(self):
         FakeFeeder.instances = []
         self.fake = FakeOwnTone()
@@ -87,8 +92,11 @@ class WebTest(unittest.TestCase):
                "PIPE_SAMPLE_RATE": "48000", "PIPE_BITS": "16", "RENDERER_PORT": "0"}
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.settings_file = Path(tmp.name) / "state" / "settings.json"
+        self.tmp = Path(tmp.name)
+        self.settings_file = self.tmp / "state" / "settings.json"
         cfg["SETTINGS_FILE"] = str(self.settings_file)
+        cfg["RECORDS_DIR"] = str(self.tmp / "records")
+        self.cfg = cfg
         FakeRendererService.instances = []
         self.app = web.App(cfg, feed.FeedControl(cfg, factory=FakeFeeder),
                            renderer_factory=FakeRendererService)
@@ -110,6 +118,20 @@ class WebTest(unittest.TestCase):
             with exc:
                 return exc.code, json.loads(exc.read())
 
+    def raw(self, method, path, data=None, content_type=""):
+        """(status, headers, body) without JSON decoding: covers, uploads."""
+        req = urllib.request.Request(self.base + path, data=data, method=method)
+        if content_type:
+            req.add_header("Content-Type", content_type)
+        try:
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                return resp.status, resp.headers, resp.read()
+        except urllib.error.HTTPError as exc:
+            with exc:
+                return exc.code, exc.headers, exc.read()
+
+
+class WebTest(WebBase):
     def test_frontend_sends_pin_only_via_pair(self):
         # Regression: a leftover "Send PIN" handler overwrote the Pair handler and still
         # sent PUT {pin}, which the server refuses.
@@ -128,7 +150,7 @@ class WebTest(unittest.TestCase):
         for path in paths:
             # `/api/update/${kind}` is apply or rollback; other placeholders are ids.
             path = path.replace("${kind}", "apply")
-            path = re.sub(r"\$\{[^}]+\}", "x", path)
+            path = re.sub(r"\$\{[^}]+\}", "x", path).split("?")[0]
             self.assertTrue(router.allowed(path), path)
 
     def test_page_and_assets_served(self):
@@ -341,7 +363,7 @@ class WebTest(unittest.TestCase):
         signatures = {".png": b"\x89PNG\r\n\x1a\n", ".ico": b"\x00\x00\x01\x00",
                       ".svg": b"<svg "}
         # header icon: dark and light version
-        logos = re.findall(r'<(?:source srcset|img src)="(/icons/[^"]+\.svg)"', page)
+        logos = re.findall(r'<(?:source srcset|img src)="(/icons/logo-[^"]+\.png)"', page)
         self.assertEqual(len(logos), 2)
         for src in icons + logos:
             sig = signatures[src[src.rindex("."):]]
@@ -368,6 +390,199 @@ class WebTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+JPEG = b"\xff\xd8\xff\xe0" + b"j" * 1000
+PNG = b"\x89PNG\r\n\x1a\n" + b"p" * 1000
+
+
+class FakeSource(covers.CoverSource):
+    """A cover source without network: "r1" has a cover, "r2" has none."""
+
+    name, label = "fake", "Fake"
+
+    def __init__(self):
+        super().__init__({})
+        self.searches = []
+
+    def search(self, album, artist, limit=covers.SEARCH_LIMIT):
+        self.searches.append((album, artist))
+        if album == "down":
+            raise covers.CoverError("Fake is not reachable")
+        return [covers.Album("fake", "r1", "Blue Train", "John Coltrane", "1957", "Album"),
+                covers.Album("fake", "r2", "Ballads", "John Coltrane", "1963", "Album")]
+
+    def cover(self, ref):
+        if ref == "r1":
+            return JPEG
+        raise covers.CoverError("Fake has no cover for this album")
+
+
+class RecordsApiTest(WebBase):
+    def setUp(self):
+        super().setUp()
+        self.source = FakeSource()
+        self.app.cover_sources = {"fake": self.source}
+
+    def add_blue_train(self):
+        code, r = self.call("POST", "/api/records", {"source": "fake", "ref": "r1",
+                                                     "title": "Blue Train",
+                                                     "artist": "John Coltrane", "year": "1957"})
+        self.assertEqual(code, 200, r)
+        return r
+
+    def test_empty_library_lists_the_sources(self):
+        code, data = self.call("GET", "/api/records")
+        self.assertEqual(code, 200)
+        self.assertEqual(data["records"], [])
+        self.assertIsNone(data["current"])
+        self.assertEqual(data["sources"], [{"id": "fake", "label": "Fake"}])
+
+    def test_search_then_add_with_cover(self):
+        code, data = self.call("GET", "/api/records/search?album=Blue%20Train&artist=Coltrane"
+                                      "&source=fake")
+        self.assertEqual(code, 200)
+        self.assertEqual(self.source.searches, [("Blue Train", "Coltrane")])
+        self.assertEqual([a["ref"] for a in data["results"]], ["r1", "r2"])
+        self.assertIsNone(data["results"][0]["in_library"])
+        r = self.add_blue_train()
+        self.assertEqual((r["title"], r["artist"], r["year"], r["warning"]),
+                         ("Blue Train", "John Coltrane", "1957", ""))
+        self.assertTrue(r["cover_url"].startswith("/covers/"))
+        # Found again: marked, and can't be added twice.
+        data = self.call("GET", "/api/records/search?album=Blue&source=")[1]  # "" = default
+        self.assertEqual(data["results"][0]["in_library"], r["id"])
+        code, err = self.call("POST", "/api/records", {"source": "fake", "ref": "r1",
+                                                       "title": "Blue Train"})
+        self.assertEqual((code, err["error"]), (400, "This album is already in the library."))
+
+    def test_album_without_cover_is_added_anyway(self):
+        code, r = self.call("POST", "/api/records", {"source": "fake", "ref": "r2",
+                                                     "title": "Ballads"})
+        self.assertEqual(code, 200)
+        self.assertEqual(r["cover_url"], "")
+        self.assertIn("no cover", r["warning"])
+
+    def test_source_errors_are_reported(self):
+        code, err = self.call("GET", "/api/records/search?album=down")
+        self.assertEqual((code, err["error"]), (400, "Fake is not reachable"))
+        code, err = self.call("GET", "/api/records/search?album=x&source=other")
+        self.assertEqual(code, 400)
+        self.assertIn("Unknown cover source", err["error"])
+
+    def test_add_by_hand_and_edit(self):
+        code, r = self.call("POST", "/api/records", {"title": "Live at the Club",
+                                                     "artist": "Friends"})
+        self.assertEqual((code, r["source"], r["cover_url"]), (200, "", ""))
+        code, r = self.call("PUT", f"/api/records/{r['id']}", {"year": "2019"})
+        self.assertEqual((code, r["year"], r["title"]), (200, "2019", "Live at the Club"))
+        self.assertEqual(self.call("POST", "/api/records", {"title": " "})[0], 400)
+        self.assertEqual(self.call("PUT", "/api/records/999", {"title": "x"})[0], 400)
+
+    def test_cover_served_and_replaced_by_an_upload(self):
+        r = self.add_blue_train()
+        code, headers, body = self.raw("GET", r["cover_url"])
+        self.assertEqual((code, headers["Content-Type"], body), (200, "image/jpeg", JPEG))
+        code, headers, body = self.raw("PUT", f"/api/records/{r['id']}/cover", PNG, "image/png")
+        self.assertEqual(code, 200, body)
+        new = json.loads(body)
+        self.assertNotEqual(new["cover_url"], r["cover_url"])
+        self.assertEqual(self.raw("GET", new["cover_url"])[2], PNG)
+        self.assertEqual(self.raw("GET", r["cover_url"])[0], 404)  # old file is gone
+        code, _h, body = self.raw("PUT", f"/api/records/{r['id']}/cover", b"GIF89a", "image/gif")
+        self.assertEqual(code, 400)
+        self.assertIn("JPEG or PNG", json.loads(body)["error"])
+
+    def test_covers_stay_inside_their_folder(self):
+        self.add_blue_train()
+        for path in ("/covers/..%2Frecords.db", "/covers/nothing.jpg"):
+            self.assertEqual(self.raw("GET", path)[0], 404, path)
+
+    def test_now_playing_goes_to_owntone_and_the_player_bar(self):
+        r = self.add_blue_train()
+        code, data = self.call("PUT", "/api/now-playing", {"record": r["id"]})
+        self.assertEqual((code, data["now_playing"]["title"]), (200, "Blue Train"))
+        state = self.call("GET", "/api/state")[1]
+        self.assertEqual(state["now_playing"]["id"], r["id"])
+        self.assertEqual(self.call("GET", "/api/records")[1]["current"], r["id"])
+        # The next playback start puts it on OwnTone's queue item.
+        self.app.owntone.play_pipe("turntable")
+        cover = self.tmp / "records" / r["cover_url"].lstrip("/")
+        update = [p for m, p, _ in self.fake.requests if p.startswith("/api/queue/items/42?")]
+        self.assertEqual(update[-1], "/api/queue/items/42?artwork_url=file:" + str(cover) +
+                         "&title=Blue%20Train&artist=John%20Coltrane")
+        # Back to the defaults.
+        self.call("PUT", "/api/now-playing", {"record": None})
+        self.assertIsNone(self.call("GET", "/api/state")[1]["now_playing"])
+        self.assertEqual((self.app.owntone.title, self.app.owntone.artwork),
+                         self.app.default_now_playing[::2])
+
+    def test_unknown_record_cannot_play(self):
+        self.assertEqual(self.call("PUT", "/api/now-playing", {"record": 99})[0], 400)
+
+    def test_stop_clears_now_playing(self):
+        r = self.add_blue_train()
+        self.call("PUT", "/api/now-playing", {"record": r["id"]})
+        self.call("POST", "/api/player/stop")
+        self.assertIsNone(self.call("GET", "/api/state")[1]["now_playing"])
+
+    def test_deleting_the_playing_record(self):
+        r = self.add_blue_train()
+        self.call("PUT", "/api/now-playing", {"record": r["id"]})
+        self.assertEqual(self.call("DELETE", f"/api/records/{r['id']}")[0], 200)
+        self.assertIsNone(self.call("GET", "/api/state")[1]["now_playing"])
+        self.assertEqual(self.call("GET", "/api/records")[1]["records"], [])
+
+    def test_editing_the_playing_record_updates_owntone(self):
+        r = self.add_blue_train()
+        self.call("PUT", "/api/now-playing", {"record": r["id"]})
+        self.call("PUT", f"/api/records/{r['id']}", {"title": "Blue Train (Mono)"})
+        self.assertEqual(self.app.owntone.title, "Blue Train (Mono)")
+
+    def test_now_playing_survives_a_restart(self):
+        r = self.add_blue_train()
+        self.call("PUT", "/api/now-playing", {"record": r["id"]})
+        again = web.App(self.cfg, feed.FeedControl(self.cfg, factory=FakeFeeder))
+        self.assertEqual(again.now_playing.id, r["id"])
+        self.assertEqual((again.owntone.title, again.owntone.artist),
+                         ("Blue Train", "John Coltrane"))
+
+    def test_sent_mid_stream_through_the_metadata_pipe(self):
+        r = self.add_blue_train()
+        pipe = MetadataPipe(self.tmp / "turntable.metadata")
+        pipe.ensure()
+        self.app.meta_pipe = pipe
+        received = bytearray()
+        opened = threading.Event()
+
+        def owntone_reading():
+            fd = os.open(pipe.path, os.O_RDONLY | os.O_NONBLOCK)
+            opened.set()
+            os.set_blocking(fd, True)
+            try:
+                while True:
+                    chunk = os.read(fd, 65536)
+                    if not chunk and received:
+                        break
+                    received.extend(chunk)
+            finally:
+                os.close(fd)
+
+        t = threading.Thread(target=owntone_reading, daemon=True)
+        t.start()
+        opened.wait(2)
+        self.call("PUT", "/api/now-playing", {"record": r["id"]})
+        t.join(5)
+        self.assertIn(b"<code>6d696e6d</code>", received)  # minm (title)
+        self.assertIn(base64.b64encode(b"Blue Train"), received)
+        self.assertIn(b"<code>50494354</code>", received)  # PICT (the cover)
+
+    def test_without_records_dir(self):
+        self.app.records = None
+        code, err = self.call("GET", "/api/records")
+        self.assertEqual(code, 400)
+        self.assertIn("RECORDS_DIR", err["error"])
+        self.assertIsNone(self.call("GET", "/api/state")[1]["now_playing"])
 
 
 class ExtraPortTest(unittest.TestCase):

@@ -29,6 +29,8 @@ PNGS = [
     (DARK, "apple-touch-icon.png", 180, False),  # iOS rounds the corners itself
     (DARK, "icon-192.png", 192, False),  # web manifest
     (DARK, "icon-512.png", 512, False),
+    (LIGHT, "logo-light-128.png", 128, True),  # web UI header (shown in greyscale)
+    (DARK, "logo-dark-128.png", 128, True),
     (DARK, "renderer-48.png", 48, True),  # UPnP <iconList> (renderer.py)
     (DARK, "renderer-120.png", 120, True),
     (DARK, "renderer-256.png", 256, True),

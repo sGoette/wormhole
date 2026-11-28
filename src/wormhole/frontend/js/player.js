@@ -1,4 +1,5 @@
-// Player bar: what plays (source name, "Lossless" badge), play/pause and master volume.
+// Player bar: what plays (the chosen record or the source, "Lossless" badge), play/pause,
+// stop and master volume.
 
 import {$, call, flash} from "./api.js";
 
@@ -61,14 +62,24 @@ export function render(s) {
 
   const stopped = !streaming && state === "stop";
   const resumable = !!r.uri;  // the turntable sent a stream once: Play reconnects to it
-  document.querySelector(".player").classList.toggle("idle", stopped);
-  $("pl-source").textContent = streaming || (stopped && resumable) ? r.source || "Turntable"
+  const rec = s.now_playing;  // chosen in the Records tab
+  document.querySelector(".player").classList.toggle("idle", stopped && !rec);
+  $("pl-source").textContent = rec ? rec.title
+    : streaming || (stopped && resumable) ? r.source || "Turntable"
     : state !== "stop" ? "OwnTone" : "Nothing playing";
   // From what ffmpeg actually decodes, not from what the turntable announces.
   $("pl-lossless").hidden = !(streaming && s.input && s.input.lossless);
-  $("pl-state").textContent = stopped
+  const status = stopped
     ? resumable ? "Stopped" : "Start a record in the turntable app"
     : playing ? "Playing" : state === "pause" ? "Paused" : "Starting…";
+  $("pl-state").textContent = rec && rec.artist ? `${rec.artist} · ${status}` : status;
+  const cover = $("pl-cover"), url = rec ? rec.cover_url : "";
+  cover.hidden = !url;
+  if (url && cover.getAttribute("src") !== url) cover.src = url;
+  // The bar's tint: the cover, blurred behind the glass (style.css, .player-card::before).
+  const card = document.querySelector(".player-card");
+  if (url) card.style.setProperty("--cover", `url("${url}")`);
+  else card.style.removeProperty("--cover");
 
   const btn = $("pl-toggle");
   btn.classList.toggle("playing", playing);

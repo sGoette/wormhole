@@ -1,4 +1,4 @@
-// Settings overlay: renderer name, renderer + OwnTone status; the Software part is software.js.
+// Settings tab: renderer name, renderer + OwnTone status; the Software part is software.js.
 
 import {$, call, flash} from "./api.js";
 
@@ -40,16 +40,10 @@ let refresh = () => {};
 
 export function onChange(fn) { refresh = fn; }
 
-export function init(onOpen) {
-  const dialog = $("settings");
-  $("open-settings").onclick = () => {
-    message("");
-    dialog.showModal();
-    onOpen();
-  };
-  $("close-settings").onclick = () => dialog.close();
-  // A tap on the dimmed backdrop closes it (the click lands on the dialog element itself).
-  dialog.addEventListener("click", e => { if (e.target === dialog) dialog.close(); });
+// The Settings tab was opened: start without an old message.
+export function opened() { message(""); }
+
+export function init() {
   $("renderer-form").onsubmit = save;
   $("renderer-name").oninput = () => { editing = true; message(""); updateSaveButton(); };
 }

@@ -5,7 +5,8 @@
 #
 # Safe to re-run (after updates that change server/ or config/owntone.conf.in). It:
 #   - installs Debian packages and OwnTone's official .deb (version + checksum pinned)
-#   - creates the system users `owntone` and `wormhole`, the data dirs and the PCM pipe
+#   - creates the system users `owntone` and `wormhole`, the data dirs, the PCM pipe (plus
+#     its .metadata pipe) and the record library folder (RECORDS_DIR, never emptied)
 #   - writes /etc/wormhole/wormhole.env once (never overwrites it)
 #   - renders /etc/owntone.conf from config/owntone.conf.in (stock file kept as .dist)
 #   - installs and (re)starts the systemd services
@@ -97,6 +98,23 @@ fi
 # wormhole writes, OwnTone (group owntone) reads.
 chown wormhole:owntone "$PIPE"
 chmod 0640 "$PIPE"
+# "Now playing" updates while the pipe plays (title, artist, cover); OwnTone opens it
+# whenever playback of the pipe starts. wormhole creates it too, if it's missing.
+META="$PIPE.metadata"
+if [ -e "$META" ] && [ ! -p "$META" ]; then
+    die "$META exists but is not a named pipe"
+fi
+[ -p "$META" ] || mkfifo "$META"
+chown wormhole:owntone "$META"
+chmod 0640 "$META"
+
+RECORDS=$(python3 -c \
+    'from wormhole import config; print(config.path(config.load(), "RECORDS_DIR"))')
+say "Record library $RECORDS"
+# Outside the checkout: reinstalling or updating wormhole keeps the records and covers.
+# OwnTone reads the covers by path, so the folder stays readable for others.
+install -d -o wormhole -g wormhole -m 0755 "$RECORDS" "$RECORDS/covers"
+echo "kept as is (records.db and covers/ belong to wormhole)"
 
 say "OwnTone config /etc/owntone.conf"
 [ -f /etc/owntone.conf.dist ] || cp /etc/owntone.conf /etc/owntone.conf.dist
