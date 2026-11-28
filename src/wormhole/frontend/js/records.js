@@ -248,7 +248,7 @@ export function init() {
   $("add-record").onclick = () => {
     note($("s-msg"), "");
     $("add-dialog").showModal();
-    $("s-album").focus();
+    $("s-artist").focus();
   };
   $("close-add").onclick = () => $("add-dialog").close();
   $("search-form").onsubmit = search;
